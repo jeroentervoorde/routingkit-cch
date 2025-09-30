@@ -9,6 +9,7 @@ repository = "https://github.com/HellOwhatAs/RoutingKit-cch"
 
 [dependencies]
 cxx = "1"
+shapefile = "0.7"
 
 [build-dependencies]
 cxx-build = "1"

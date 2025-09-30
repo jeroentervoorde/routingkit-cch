@@ -1,3 +1,6 @@
+// Expose test support utilities
+pub mod shp_utils;
+
 #[cxx::bridge]
 mod ffi {
     extern "C++" {
@@ -200,11 +203,16 @@ impl<'a> CCHQuery<'a> {
         self.runned = true;
     }
 
-    pub fn distance(&self) -> u32 {
+    pub fn distance(&self) -> Option<u32> {
         if !self.runned {
             panic!("Query distance requested before run()");
         }
-        unsafe { cch_query_distance(self.inner.as_ref().unwrap()) }
+        let res = unsafe { cch_query_distance(self.inner.as_ref().unwrap()) };
+        if res == (i32::MAX as u32) {
+            None
+        } else {
+            Some(res)
+        }
     }
 
     pub fn node_path(&self) -> Vec<u32> {
