@@ -39,6 +39,8 @@ namespace rk_wrap
     // Borrow weights (zero-copy). The caller must keep the memory alive while the metric lives.
     std::unique_ptr<CCHMetric> cch_metric_new(const CCH &cch, rust::Slice<const uint32_t> weight);
     void cch_metric_customize(CCHMetric &metric);
+    // Parallel customization (uses OpenMP inside RoutingKit if available). If thread_count==0 -> auto.
+    void cch_metric_parallel_customize(CCHMetric &metric, uint32_t thread_count);
 
     std::unique_ptr<CCHQuery> cch_query_new(const CCHMetric &metric);
     void cch_query_reset(CCHQuery &query, const CCHMetric &metric);
@@ -77,6 +79,7 @@ std::unique_ptr<CCH> cch_new(rust::Slice<const uint32_t> order,
                              bool filter_always_inf_arcs);
 std::unique_ptr<CCHMetric> cch_metric_new(const CCH &cch, rust::Slice<const uint32_t> weight);
 void cch_metric_customize(CCHMetric &metric);
+void cch_metric_parallel_customize(CCHMetric &metric, uint32_t thread_count);
 std::unique_ptr<CCHQuery> cch_query_new(const CCHMetric &metric);
 void cch_query_reset(CCHQuery &query, const CCHMetric &metric);
 void cch_query_add_source(CCHQuery &query, uint32_t s, uint32_t dist);

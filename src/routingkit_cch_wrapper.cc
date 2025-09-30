@@ -53,6 +53,19 @@ void rk_wrap::cch_metric_customize(CCHMetric &metric)
     metric.inner.customize();
 }
 
+void rk_wrap::cch_metric_parallel_customize(CCHMetric &metric, uint32_t thread_count)
+{
+    RoutingKit::CustomizableContractionHierarchyParallelization par(*metric.inner.cch);
+    if (thread_count == 0)
+    {
+        par.customize(metric.inner); // internal picks #procs (or 1 without OpenMP)
+    }
+    else
+    {
+        par.customize(metric.inner, thread_count);
+    }
+}
+
 std::unique_ptr<CCHQuery> rk_wrap::cch_query_new(const CCHMetric &metric)
 {
     CustomizableContractionHierarchyQuery q(metric.inner);
@@ -198,6 +211,7 @@ std::unique_ptr<CCHMetric> cch_metric_new(const CCH &cch, rust::Slice<const uint
     return rk_wrap::cch_metric_new(cch, weight);
 }
 void cch_metric_customize(CCHMetric &metric) { rk_wrap::cch_metric_customize(metric); }
+void cch_metric_parallel_customize(CCHMetric &metric, uint32_t thread_count) { rk_wrap::cch_metric_parallel_customize(metric, thread_count); }
 std::unique_ptr<CCHQuery> cch_query_new(const CCHMetric &metric) { return rk_wrap::cch_query_new(metric); }
 void cch_query_reset(CCHQuery &query, const CCHMetric &metric) { rk_wrap::cch_query_reset(query, metric); }
 void cch_query_add_source(CCHQuery &query, uint32_t s, uint32_t dist) { rk_wrap::cch_query_add_source(query, s, dist); }

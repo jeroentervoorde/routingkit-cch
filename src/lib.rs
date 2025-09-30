@@ -28,6 +28,9 @@ mod ffi {
         /// Cost: Depends on separator quality; usually near-linear in m * small constant; may allocate temporary buffers.
         unsafe fn cch_metric_customize(metric: Pin<&mut CCHMetric>);
 
+        /// Parallel customization; thread_count==0 picks an internal default (#procs if OpenMP, else 1).
+        unsafe fn cch_metric_parallel_customize(metric: Pin<&mut CCHMetric>, thread_count: u32);
+
         /// Allocate a new reusable query object bound to a metric.
         unsafe fn cch_query_new(metric: &CCHMetric) -> UniquePtr<CCHQuery>;
 
@@ -129,6 +132,18 @@ impl<'a> CCHMetric<'a> {
         let metric = unsafe {
             let mut metric = cch_metric_new(&cch.inner, weights);
             cch_metric_customize(metric.as_mut().unwrap());
+            metric
+        };
+        CCHMetric {
+            inner: metric,
+            _marker: std::marker::PhantomData,
+        }
+    }
+
+    pub fn parallel_new(cch: &'a CCH, weights: &'a [u32], thread_count: u32) -> Self {
+        let metric = unsafe {
+            let mut metric = cch_metric_new(&cch.inner, weights);
+            cch_metric_parallel_customize(metric.as_mut().unwrap(), thread_count);
             metric
         };
         CCHMetric {

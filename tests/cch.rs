@@ -138,8 +138,8 @@ fn random_pairs(
 
 #[test]
 fn compare_with_pathfinding() {
-    let node_count = 10_000;
-    let edge_factor = 3;
+    let node_count = 20_000;
+    let edge_factor = 4;
     let query_count = 2000;
     let seed: u64 = 42;
 
@@ -160,7 +160,7 @@ fn compare_with_pathfinding() {
     eprintln!("Building CCH...");
     let cch = CCH::new(&order, &tail, &head, false);
     eprintln!("Building metric + customization...");
-    let metric = CCHMetric::new(&cch, &weights);
+    let metric = CCHMetric::parallel_new(&cch, &weights, 0);
 
     // Build adjacency for reference dijkstra using pathfinding crate
     eprintln!("Building adjacency for pathfinding reference...");
