@@ -3,147 +3,142 @@ use std::{
     path::{Path, PathBuf},
 };
 
+// =============================
+// OpenMP handling
+// =============================
 struct OpenMPConfig {
-    c_flags: Vec<&'static str>,
-    link_libs: Vec<&'static str>,
-    link_search: Vec<String>,
-    link_args: Vec<String>,
-    include_dirs: Vec<String>,
+    c_flags: &'static [&'static str],
+    link_libs: &'static [&'static str],
+    dynamic_search: Vec<String>,
+    dynamic_includes: Vec<String>,
+    dynamic_link_args: Vec<String>,
 }
 
-fn compute_openmp_config(target: &str, is_msvc: bool, is_clang: bool) -> OpenMPConfig {
+fn detect_openmp(target: &str, is_msvc: bool, is_clang: bool) -> OpenMPConfig {
     if is_msvc {
         return OpenMPConfig {
-            c_flags: vec!["/openmp"],
-            link_libs: vec![], // vcomp auto handled by MSVC
-            link_search: vec![],
-            link_args: vec![],
-            include_dirs: vec![],
+            c_flags: &["/openmp"],
+            link_libs: &[],
+            dynamic_search: vec![],
+            dynamic_includes: vec![],
+            dynamic_link_args: vec![],
         };
     }
-
-    // Non-MSVC
     if target.contains("apple-darwin") {
-        // macOS: require brew install libomp
         let mut search = vec![];
         let mut includes = vec![];
-        let mut extra_link_args = vec![];
+        let mut link_args = vec![];
         if let Ok(prefix_out) = std::process::Command::new("brew").arg("--prefix").output() {
             if let Ok(prefix) = String::from_utf8(prefix_out.stdout) {
                 let p = prefix.trim();
                 if !p.is_empty() {
                     search.push(format!("{p}/lib"));
                     includes.push(format!("{p}/include"));
-                    extra_link_args.push(format!("-Wl,-rpath,{p}/lib"));
+                    link_args.push(format!("-Wl,-rpath,{p}/lib"));
                 }
             }
         }
-        OpenMPConfig {
-            c_flags: vec!["-Xpreprocessor", "-fopenmp"],
-            link_libs: vec!["omp"],
-            link_search: search,
-            link_args: extra_link_args,
-            include_dirs: includes,
-        }
-    } else {
-        // Linux / MinGW etc.
-        let lib = if is_clang { "omp" } else { "gomp" };
-        OpenMPConfig {
-            c_flags: vec!["-fopenmp"],
-            link_libs: vec![lib],
-            link_search: vec![],
-            link_args: vec![],
-            include_dirs: vec![],
-        }
+        return OpenMPConfig {
+            c_flags: &["-Xpreprocessor", "-fopenmp"],
+            link_libs: &["omp"],
+            dynamic_search: search,
+            dynamic_includes: includes,
+            dynamic_link_args: link_args,
+        };
+    }
+    // Linux / MinGW
+    let link_libs: &'static [&'static str] = if is_clang { &["omp"] } else { &["gomp"] };
+    OpenMPConfig {
+        c_flags: &["-fopenmp"],
+        link_libs,
+        dynamic_search: vec![],
+        dynamic_includes: vec![],
+        dynamic_link_args: vec![],
     }
 }
 
-fn apply_openmp_config<FAddFlag, FAddInclude>(
-    omp: &OpenMPConfig,
-    mut add_flag: FAddFlag,
-    mut add_include: FAddInclude,
-) where
-    FAddFlag: FnMut(&str),
-    FAddInclude: FnMut(&str),
-{
-    for f in &omp.c_flags {
-        add_flag(f);
+fn emit_openmp(omp: &OpenMPConfig, build: &mut cc::Build) {
+    for f in omp.c_flags {
+        build.flag(f);
     }
-    for inc in &omp.include_dirs {
-        add_include(inc);
-    }
-    for s in &omp.link_search {
+    for s in &omp.dynamic_search {
         println!("cargo:rustc-link-search=native={s}");
     }
-    for lib in &omp.link_libs {
+    for lib in omp.link_libs {
         println!("cargo:rustc-link-lib={lib}");
     }
-    for arg in &omp.link_args {
-        println!("cargo:rustc-link-arg={arg}");
+    for a in &omp.dynamic_link_args {
+        println!("cargo:rustc-link-arg={a}");
     }
-    if let Ok(lib_dir) = env::var("OPENMP_LIB_DIR") {
-        println!("cargo:rustc-link-search=native={lib_dir}");
+    for inc in &omp.dynamic_includes {
+        build.include(inc);
     }
-    if let Ok(inc_dir) = env::var("OPENMP_INCLUDE_DIR") {
-        add_include(&inc_dir);
+    if let Ok(extra) = env::var("OPENMP_LIB_DIR") {
+        println!("cargo:rustc-link-search=native={extra}");
     }
+    if let Ok(extra_inc) = env::var("OPENMP_INCLUDE_DIR") {
+        build.include(extra_inc);
+    }
+}
+
+// =============================
+// RoutingKit sources & patching
+// =============================
+const RK_ALLOW: &[&str] = &[
+    "customizable_contraction_hierarchy.cpp",
+    "contraction_hierarchy.cpp",
+    "bit_vector.cpp",
+    "bit_select.cpp",
+    "id_mapper.cpp",
+    "permutation.cpp",
+    "nested_dissection.cpp",
+    "verify.cpp",
+    "graph_util.cpp",
+    "timer.cpp",
+];
+
+/// Collect list of source files (patched versions if needed) to compile.
+fn collect_routingkit_files(src_dir: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for entry in fs::read_dir(src_dir).unwrap() {
+        let path = entry.unwrap().path();
+        if let Some(name) = path.file_name().and_then(|s| s.to_str()) {
+            if RK_ALLOW.contains(&name) {
+                if let Some(patcher) = PATCHERS.iter().find(|(n, _)| *n == name).map(|(_, f)| *f) {
+                    let patched = emit_patched_with(&path, patcher)
+                        .unwrap_or_else(|e| panic!("failed to patch {name}: {e}"));
+                    out.push(patched);
+                } else {
+                    out.push(path);
+                }
+            }
+        }
+    }
+    out
 }
 
 fn main() {
+    // 1. Locate RoutingKit
     let rk_dir = env::var("ROUTINGKIT_DIR")
         .ok()
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("./RoutingKit"));
-
     let include_dir = rk_dir.join("include");
     let src_dir = rk_dir.join("src");
-
     if !include_dir.exists() {
-        panic!(
-            "The RoutingKit include directory does not exist: {include_dir:?}. 
-            Please set ROUTINGKIT_DIR or place it in ./RoutingKit"
-        );
+        panic!("RoutingKit include dir missing: {:?}", include_dir);
+    }
+    if !src_dir.exists() {
+        panic!("RoutingKit src dir missing: {:?}", src_dir);
     }
 
-    let mut build = cxx_build::bridge("src/lib.rs");
-    build.include(&include_dir);
-    build.include("src"); // for our wrapper header
-    build.include(&src_dir); // for private headers required by patched files
+    // 2. Prepare CXX build
+    let mut build: cc::Build = cxx_build::bridge("src/lib.rs");
+    build.include(&include_dir).include("src").include(&src_dir);
 
-    let allow = [
-        // Core CCH
-        "customizable_contraction_hierarchy.cpp",
-        "contraction_hierarchy.cpp", // base CH structures used internally
-        // Utilities required by unresolved symbols
-        "bit_vector.cpp",        // BitVector
-        "bit_select.cpp",        // popcount helpers
-        "id_mapper.cpp",         // LocalIDMapper
-        "permutation.cpp", // compute_*_sort_permutation (actually part of nested_dissection or permutation utilities)
-        "nested_dissection.cpp", // may be referenced by order related helpers
-        "verify.cpp",      // check_contraction_hierarchy_for_errors
-        "graph_util.cpp",  // find_arc_given_sorted_head
-        "timer.cpp",       // get_micro_time
-                           // Keep minimal; add more if linker still complains
-    ];
-    if src_dir.exists() {
-        for entry in std::fs::read_dir(&src_dir).unwrap() {
-            let path = entry.unwrap().path();
-            if let Some(fname) = path.file_name().and_then(|s| s.to_str()) {
-                if allow.contains(&fname) {
-                    if let Some(patcher) =
-                        PATCHERS.iter().find(|(n, _)| *n == fname).map(|(_, f)| *f)
-                    {
-                        let patched = emit_patched_with(&path, patcher)
-                            .unwrap_or_else(|e| panic!("failed to patch {fname}: {e}"));
-                        build.file(patched);
-                    } else {
-                        build.file(&path);
-                    }
-                }
-            }
-        }
-    } else {
-        panic!("The RoutingKit src directory does not exist: {src_dir:?}");
+    // 3. Add RoutingKit sources (patched if needed)
+    for f in collect_routingkit_files(&src_dir) {
+        build.file(f);
     }
     build.file("src/routingkit_cch_wrapper.cc");
 
@@ -151,57 +146,43 @@ fn main() {
         build.define("ROUTING_KIT_NO_GCC_EXTENSIONS", None);
     }
 
-    // Common language standard & optimization
-    build.flag_if_supported("-std=c++17");
-    build.flag_if_supported("/std:c++17"); // MSVC variant
-    build.flag_if_supported("-O3");
-    build.flag_if_supported("/O2"); // MSVC approximate
-
-    // Position independent code (shared libs on *nix)
+    // 4. Flags & optimizations
+    // Language / optimization
+    build
+        .flag_if_supported("-std=c++17")
+        .flag_if_supported("/std:c++17");
+    build.flag_if_supported("-O3").flag_if_supported("/O2");
+    // Position independent code
     build.flag_if_supported("-fPIC");
-
-    // Warning level roughly equivalent
-    build.flag_if_supported("-Wall");
-    build.flag_if_supported("/W4"); // high warning level on MSVC
-
-    // Fast math / floating point contraction
-    build.flag_if_supported("-ffast-math"); // GCC/Clang
-    build.flag_if_supported("/fp:fast"); // MSVC alternative
-
-    // Native architecture tuning (skip under cross compilation or if unsupported)
-    // We avoid passing on MSVC because /arch:native is not a thing; /arch:AVX2 etc would be explicit.
+    // Warnings
+    build.flag_if_supported("-Wall").flag_if_supported("/W4");
+    // Fast math
+    build
+        .flag_if_supported("-ffast-math")
+        .flag_if_supported("/fp:fast");
+    // Architecture tune
     if !cfg!(target_env = "msvc") {
         build.flag_if_supported("-march=native");
     }
-
-    // Exception handling (MSVC)
+    // Exceptions (MSVC)
     build.flag_if_supported("/EHsc");
-
-    // Disable some noisy warnings
-    build.flag_if_supported("-Wno-unused-parameter");
-    build.flag_if_supported("-Wno-psabi");
-    build.flag_if_supported("-Wno-unused-variable");
-    build.flag_if_supported("-Wno-unused-function");
-
-    // OpenMP
-    let target = env::var("TARGET").unwrap_or_default();
-    let compiler = build.get_compiler();
-    let omp = compute_openmp_config(&target, compiler.is_like_msvc(), compiler.is_like_clang());
-    {
-        use std::cell::RefCell;
-        let cell = RefCell::new(&mut build);
-        apply_openmp_config(
-            &omp,
-            |f| {
-                cell.borrow_mut().flag(f);
-            },
-            |inc| {
-                cell.borrow_mut().include(inc);
-            },
-        );
+    // Silence some warnings
+    for w in [
+        "-Wno-unused-parameter",
+        "-Wno-psabi",
+        "-Wno-unused-variable",
+        "-Wno-unused-function",
+    ] {
+        build.flag_if_supported(w);
     }
 
-    // -pthread
+    // 5. OpenMP (mandatory parallel)
+    let target = env::var("TARGET").unwrap_or_default();
+    let compiler = build.get_compiler();
+    let omp = detect_openmp(&target, compiler.is_like_msvc(), compiler.is_like_clang());
+    emit_openmp(&omp, &mut build);
+
+    // 6. pthread (POSIX)
     build.flag_if_supported("-pthread");
 
     // Define NDEBUG for release-like (opt) builds; keep assertions in debug.
@@ -211,14 +192,22 @@ fn main() {
         println!("cargo:warning=Compiling C++ in debug mode.");
     }
 
+    // 7. Compile
     build.compile("routingkit_cch");
 
-    println!("cargo:rerun-if-env-changed=ROUTINGKIT_DIR");
-    println!("cargo:rerun-if-changed=src/lib.rs");
+    // 8. Re-run triggers
+    for item in ["ROUTINGKIT_DIR"] {
+        println!("cargo:rerun-if-env-changed={item}");
+    }
+    for file in [
+        "src/lib.rs",
+        "src/routingkit_cch_wrapper.h",
+        "src/routingkit_cch_wrapper.cc",
+    ] {
+        println!("cargo:rerun-if-changed={file}");
+    }
     println!("cargo:rerun-if-changed={}", include_dir.display());
     println!("cargo:rerun-if-changed={}", src_dir.display());
-    println!("cargo:rerun-if-changed=src/routingkit_cch_wrapper.h");
-    println!("cargo:rerun-if-changed=src/routingkit_cch_wrapper.cc");
 }
 
 /// Map of file name -> patch transform function.
