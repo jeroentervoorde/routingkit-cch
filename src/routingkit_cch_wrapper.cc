@@ -39,19 +39,13 @@ std::unique_ptr<CCH> rk_wrap::cch_new(rust::Slice<const uint32_t> order,
 
 std::unique_ptr<CCHMetric> rk_wrap::cch_metric_new(const CCH &cch, rust::Slice<const uint32_t> weight)
 {
-    if (weight.size() == 0)
+    if (weight.size() != cch.inner.node_count())
     {
-        throw std::invalid_argument("weight empty");
+        throw std::invalid_argument("weight size mismatch with node_count");
     }
-    // Allocate owned storage so the raw pointer inside RoutingKit metric stays valid.
-    auto owned = std::make_shared<std::vector<unsigned>>();
-    owned->reserve(weight.size());
-    for (size_t i = 0; i < weight.size(); ++i)
-        owned->push_back(weight[i]);
-
-    // Use pointer-based constructor (takes unsigned*) so it does not copy again.
-    CustomizableContractionHierarchyMetric metric(cch.inner, owned->data());
-    return std::unique_ptr<CCHMetric>(new CCHMetric(std::move(owned), std::move(metric)));
+    // Zero-copy: directly use pointer into Rust slice.
+    CustomizableContractionHierarchyMetric metric(cch.inner, reinterpret_cast<const unsigned *>(weight.data()));
+    return std::unique_ptr<CCHMetric>(new CCHMetric(std::move(metric)));
 }
 
 void rk_wrap::cch_metric_customize(CCHMetric &metric)

@@ -19,16 +19,10 @@ namespace rk_wrap
 
     struct CCHMetric
     {
-        // Keep an owned copy of the weight vector so that the raw pointer
-        // stored inside RoutingKit::CustomizableContractionHierarchyMetric
-        // (metric.input_weight) never dangles. RoutingKit only stores the
-        // pointer; without owning storage here we previously passed a
-        // temporary std::vector that got destroyed after construction.
-        std::shared_ptr<std::vector<unsigned>> owned_weights; // may be null if user supplied external lifetime (future extension)
+        // Borrowed pointer into Rust-owned weight slice (no copy).
+        // SAFETY: Rust side must guarantee the slice outlives this CCHMetric.
         RoutingKit::CustomizableContractionHierarchyMetric inner;
-        CCHMetric(std::shared_ptr<std::vector<unsigned>> w,
-                  RoutingKit::CustomizableContractionHierarchyMetric &&x)
-            : owned_weights(std::move(w)), inner(std::move(x)) {}
+        explicit CCHMetric(RoutingKit::CustomizableContractionHierarchyMetric &&x) : inner(std::move(x)) {}
     };
 
     struct CCHQuery
@@ -42,6 +36,7 @@ namespace rk_wrap
                                  rust::Slice<const uint32_t> head,
                                  bool filter_always_inf_arcs);
 
+    // Borrow weights (zero-copy). The caller must keep the memory alive while the metric lives.
     std::unique_ptr<CCHMetric> cch_metric_new(const CCH &cch, rust::Slice<const uint32_t> weight);
     void cch_metric_customize(CCHMetric &metric);
 

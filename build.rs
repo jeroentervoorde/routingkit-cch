@@ -16,7 +16,7 @@ fn main() {
         );
     }
 
-    let mut build = cxx_build::bridge("src/ffi.rs");
+    let mut build = cxx_build::bridge("src/lib.rs");
     build.include(&include_dir);
     build.include("src"); // for our wrapper header
 
@@ -64,7 +64,7 @@ fn main() {
     build.compile("routingkit_cch");
 
     println!("cargo:rerun-if-env-changed=ROUTINGKIT_DIR");
-    println!("cargo:rerun-if-changed=src/ffi.rs");
+    println!("cargo:rerun-if-changed=src/lib.rs");
     println!("cargo:rerun-if-changed={}", include_dir.display());
     println!("cargo:rerun-if-changed={}", src_dir.display());
     println!("cargo:rerun-if-changed=src/routingkit_cch_wrapper.h");
