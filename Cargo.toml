@@ -15,3 +15,6 @@ cxx-build = "1"
 
 [dev-dependencies]
 rayon = "1"
+pathfinding = "4"
+rand = "0.8"
+indicatif = { version = "0.18.0", features = ["rayon"] }
