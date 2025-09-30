@@ -2,8 +2,7 @@ use indicatif::ProgressIterator;
 use pathfinding::prelude::dijkstra;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
-use routingkit_cch::{CCH, CCHMetric, CCHQuery, compute_order_inertial};
-use std::collections::HashSet;
+use routingkit_cch::{CCH, CCHMetric, CCHQuery, compute_order_inertial, shp_utils};
 use std::sync::LazyLock;
 
 const STYLE: LazyLock<indicatif::ProgressStyle> = LazyLock::new(|| {
@@ -12,57 +11,6 @@ const STYLE: LazyLock<indicatif::ProgressStyle> = LazyLock::new(|| {
     )
     .unwrap()
 });
-
-fn build_random_grid_graph(
-    node_count: usize,
-    edge_count: usize,
-    rng: Option<&mut StdRng>,
-) -> (Vec<u32>, Vec<u32>, Vec<u32>, Vec<f32>, Vec<f32>) {
-    let rng = match rng {
-        Some(r) => r,
-        None => &mut StdRng::from_entropy(),
-    };
-    let grid_size = (node_count as f32).sqrt().ceil() as u32;
-    let mut edges = HashSet::new();
-    while edges.len() < edge_count {
-        let x1 = rng.gen_range(0..grid_size);
-        let y1 = rng.gen_range(0..grid_size);
-        let x2 = rng.gen_range(0..grid_size);
-        let y2 = rng.gen_range(0..grid_size);
-        if (x1 != x2 || y1 != y2)
-            && x1 < grid_size
-            && y1 < grid_size
-            && x2 < grid_size
-            && y2 < grid_size
-        {
-            let u = x1 + y1 * grid_size;
-            let v = x2 + y2 * grid_size;
-            if u < node_count as u32 && v < node_count as u32 {
-                edges.insert((u, v));
-            }
-        }
-    }
-    let mut tail = Vec::with_capacity(edges.len());
-    let mut head = Vec::with_capacity(edges.len());
-    let mut weights = Vec::with_capacity(edges.len());
-    for &(u, v) in &edges {
-        tail.push(u);
-        head.push(v);
-        weights.push(rng.gen_range(1..20));
-    }
-
-    // Generate random coordinates for inertial order
-    let mut lat = Vec::with_capacity(node_count);
-    let mut lon = Vec::with_capacity(node_count);
-    for i in 0..node_count {
-        let x = (i as u32 % grid_size) as f32;
-        let y = (i as u32 / grid_size) as f32;
-        lat.push(y);
-        lon.push(x);
-    }
-
-    (tail, head, weights, lat, lon)
-}
 
 fn random_pairs(
     node_count: usize,
@@ -85,17 +33,32 @@ fn random_pairs(
     pairs
 }
 
-#[ignore]
 #[test]
+#[ignore] // requires data files
 fn compare_with_pathfinding() {
-    let node_count = 10_000;
-    let edge_count = 40_000;
+    let edges = shp_utils::load_edges(&"data/beijing/edges.shp").unwrap();
+    let nodes = shp_utils::load_nodes(&"data/beijing/nodes.shp").unwrap();
+    let shp_utils::GraphArrays {
+        osmids: _,
+        xs,
+        ys,
+        tail,
+        head,
+        weight,
+    } = shp_utils::build_graph_arrays(&nodes, &edges).unwrap();
+    let node_count = nodes.len();
     let query_count = 2000;
     let seed: u64 = 42;
-
     let mut rng = StdRng::seed_from_u64(seed);
-    let (tail, head, weights, lat, lon) =
-        build_random_grid_graph(node_count, edge_count, Some(&mut rng));
+    let tail = tail.into_iter().map(|x| x as u32).collect::<Vec<u32>>();
+    let head = head.into_iter().map(|x| x as u32).collect::<Vec<u32>>();
+    let weights = weight
+        .into_iter()
+        .map(|x| (x * 1e3) as u32)
+        .collect::<Vec<u32>>();
+    let lat = xs.into_iter().map(|x| x as f32).collect::<Vec<f32>>();
+    let lon = ys.into_iter().map(|x| x as f32).collect::<Vec<f32>>();
+
     eprintln!(
         "Graph has {} nodes, {} edges, with {} queries.",
         node_count,
