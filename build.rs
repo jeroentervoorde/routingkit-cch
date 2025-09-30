@@ -3,6 +3,92 @@ use std::{
     path::{Path, PathBuf},
 };
 
+struct OpenMPConfig {
+    c_flags: Vec<&'static str>,
+    link_libs: Vec<&'static str>,
+    link_search: Vec<String>,
+    link_args: Vec<String>,
+    include_dirs: Vec<String>,
+}
+
+fn compute_openmp_config(target: &str, is_msvc: bool, is_clang: bool) -> OpenMPConfig {
+    if is_msvc {
+        return OpenMPConfig {
+            c_flags: vec!["/openmp"],
+            link_libs: vec![], // vcomp auto handled by MSVC
+            link_search: vec![],
+            link_args: vec![],
+            include_dirs: vec![],
+        };
+    }
+
+    // Non-MSVC
+    if target.contains("apple-darwin") {
+        // macOS: require brew install libomp
+        let mut search = vec![];
+        let mut includes = vec![];
+        let mut extra_link_args = vec![];
+        if let Ok(prefix_out) = std::process::Command::new("brew").arg("--prefix").output() {
+            if let Ok(prefix) = String::from_utf8(prefix_out.stdout) {
+                let p = prefix.trim();
+                if !p.is_empty() {
+                    search.push(format!("{p}/lib"));
+                    includes.push(format!("{p}/include"));
+                    extra_link_args.push(format!("-Wl,-rpath,{p}/lib"));
+                }
+            }
+        }
+        OpenMPConfig {
+            c_flags: vec!["-Xpreprocessor", "-fopenmp"],
+            link_libs: vec!["omp"],
+            link_search: search,
+            link_args: extra_link_args,
+            include_dirs: includes,
+        }
+    } else {
+        // Linux / MinGW etc.
+        let lib = if is_clang { "omp" } else { "gomp" };
+        OpenMPConfig {
+            c_flags: vec!["-fopenmp"],
+            link_libs: vec![lib],
+            link_search: vec![],
+            link_args: vec![],
+            include_dirs: vec![],
+        }
+    }
+}
+
+fn apply_openmp_config<FAddFlag, FAddInclude>(
+    omp: &OpenMPConfig,
+    mut add_flag: FAddFlag,
+    mut add_include: FAddInclude,
+) where
+    FAddFlag: FnMut(&str),
+    FAddInclude: FnMut(&str),
+{
+    for f in &omp.c_flags {
+        add_flag(f);
+    }
+    for inc in &omp.include_dirs {
+        add_include(inc);
+    }
+    for s in &omp.link_search {
+        println!("cargo:rustc-link-search=native={s}");
+    }
+    for lib in &omp.link_libs {
+        println!("cargo:rustc-link-lib={lib}");
+    }
+    for arg in &omp.link_args {
+        println!("cargo:rustc-link-arg={arg}");
+    }
+    if let Ok(lib_dir) = env::var("OPENMP_LIB_DIR") {
+        println!("cargo:rustc-link-search=native={lib_dir}");
+    }
+    if let Ok(inc_dir) = env::var("OPENMP_INCLUDE_DIR") {
+        add_include(&inc_dir);
+    }
+}
+
 fn main() {
     let rk_dir = env::var("ROUTINGKIT_DIR")
         .ok()
@@ -98,19 +184,21 @@ fn main() {
     build.flag_if_supported("-Wno-unused-function");
 
     // OpenMP
-    build.flag_if_supported("-fopenmp"); // GCC/Clang
-    build.flag_if_supported("/openmp"); // MSVC
-    // auto detect OpenMP runtime
-    if cfg!(any(target_os = "linux", target_os = "macos")) {
-        // try omp (clang/macOS)
-        if pkg_config::Config::new().probe("omp").is_ok() {
-        } else if pkg_config::Config::new().probe("gomp").is_ok() {
-        } else {
-            println!(
-                "cargo:warning=No OpenMP runtime found via pkg-config (omp/gomp).
-                You may need to install libomp-dev or libgomp1."
-            );
-        }
+    let target = env::var("TARGET").unwrap_or_default();
+    let compiler = build.get_compiler();
+    let omp = compute_openmp_config(&target, compiler.is_like_msvc(), compiler.is_like_clang());
+    {
+        use std::cell::RefCell;
+        let cell = RefCell::new(&mut build);
+        apply_openmp_config(
+            &omp,
+            |f| {
+                cell.borrow_mut().flag(f);
+            },
+            |inc| {
+                cell.borrow_mut().include(inc);
+            },
+        );
     }
 
     // -pthread

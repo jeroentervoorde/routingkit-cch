@@ -13,7 +13,6 @@ shapefile = "0.7"
 
 [build-dependencies]
 cxx-build = "1"
-pkg-config = "0.3"
 
 [dev-dependencies]
 rayon = "1"
