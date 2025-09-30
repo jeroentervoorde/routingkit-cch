@@ -100,6 +100,18 @@ fn main() {
     // OpenMP
     build.flag_if_supported("-fopenmp"); // GCC/Clang
     build.flag_if_supported("/openmp"); // MSVC
+    // auto detect OpenMP runtime
+    if cfg!(any(target_os = "linux", target_os = "macos")) {
+        // try omp (clang/macOS)
+        if pkg_config::Config::new().probe("omp").is_ok() {
+        } else if pkg_config::Config::new().probe("gomp").is_ok() {
+        } else {
+            println!(
+                "cargo:warning=No OpenMP runtime found via pkg-config (omp/gomp).
+                You may need to install libomp-dev or libgomp1."
+            );
+        }
+    }
 
     // -pthread
     build.flag_if_supported("-pthread");
