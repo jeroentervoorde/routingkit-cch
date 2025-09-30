@@ -39,9 +39,9 @@ std::unique_ptr<CCH> rk_wrap::cch_new(rust::Slice<const uint32_t> order,
 
 std::unique_ptr<CCHMetric> rk_wrap::cch_metric_new(const CCH &cch, rust::Slice<const uint32_t> weight)
 {
-    if (weight.size() != cch.inner.node_count())
+    if (weight.size() != cch.inner.input_arc_count())
     {
-        throw std::invalid_argument("weight size mismatch with node_count");
+        throw std::invalid_argument("weight size mismatch with input_arc_count");
     }
     // Zero-copy: directly use pointer into Rust slice.
     CustomizableContractionHierarchyMetric metric(cch.inner, reinterpret_cast<const unsigned *>(weight.data()));
