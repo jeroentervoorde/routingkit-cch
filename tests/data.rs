@@ -70,9 +70,12 @@ fn test_build_graph_arrays() {
 
 #[test]
 fn test_load_paths() {
+    let Ok(rdr) = std::fs::File::open(TRIPS_PATH) else {
+        println!("Failed to open trips file: {TRIPS_PATH}");
+        return;
+    };
     let deserialized: Vec<(serde_pickle::Value, Vec<usize>, (usize, usize))> =
-        serde_pickle::from_reader(std::fs::File::open(TRIPS_PATH).unwrap(), Default::default())
-            .unwrap();
+        serde_pickle::from_reader(rdr, Default::default()).unwrap();
     println!("Loaded {} paths. Showing first 5:", deserialized.len());
     for (i, (idx, path, time)) in deserialized.iter().take(5).enumerate() {
         println!("Path[{i}]: idx={idx:?}, path={path:?}, time={time:?}");

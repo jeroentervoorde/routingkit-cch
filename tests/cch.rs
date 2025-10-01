@@ -1,5 +1,7 @@
 use indicatif::{MultiProgress, ProgressBar, ProgressIterator};
 use pathfinding::prelude::dijkstra;
+use rand::seq::SliceRandom;
+use rand::{Rng, SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
 use routingkit_cch::{
     CCH, CCHMetric, CCHMetricPartialUpdater, CCHQuery, compute_order_degree,
@@ -128,6 +130,134 @@ fn compare_with_pathfinding() {
                 }
             })
             .count();
+    }
+}
+
+#[test]
+fn random_graph_compare_parallel_partial() {
+    let mut rng = StdRng::from_entropy();
+
+    // Graph parameters (kept modest for test time; adjust if needed)
+    let node_count: u32 = 2_000;
+    let edge_count: usize = 10_000;
+
+    // Ensure basic connectivity: start with a random permutation spanning tree
+    let mut nodes: Vec<u32> = (0..node_count).collect();
+    nodes.shuffle(&mut rng);
+
+    let mut tail: Vec<u32> = Vec::with_capacity(edge_count);
+    let mut head: Vec<u32> = Vec::with_capacity(edge_count);
+    let mut weights: Vec<u32> = Vec::with_capacity(edge_count);
+
+    // Spanning tree edges
+    for w in 1..nodes.len() {
+        let u = nodes[w - 1];
+        let v = nodes[w];
+        tail.push(u);
+        head.push(v);
+        weights.push(rng.gen_range(1..=1_000));
+    }
+    // Remaining random edges
+    while tail.len() < edge_count {
+        let u = rng.gen_range(0..node_count);
+        let v = rng.gen_range(0..node_count);
+        if u == v {
+            continue;
+        }
+        tail.push(u);
+        head.push(v);
+        weights.push(rng.gen_range(1..=1_000));
+    }
+
+    eprintln!(
+        "[random_graph_compare] graph: {} nodes, {} edges",
+        node_count, edge_count
+    );
+
+    // Order (degree-based since we have no coords here)
+    let order = compute_order_degree(node_count, &tail, &head);
+    let cch = CCH::new(&order, &tail, &head, false);
+    eprint!("Building metric + customization...");
+    let mut metric = CCHMetric::parallel_new(&cch, weights, 0);
+    eprintln!(" done.");
+    let mut updater = CCHMetricPartialUpdater::new(&cch);
+
+    // Helper to rebuild adjacency for reference Dijkstra
+    let build_adj = |weights_slice: &[u32]| -> Vec<Vec<(u32, u32)>> {
+        let mut adj = vec![Vec::<(u32, u32)>::new(); node_count as usize];
+        for i in 0..tail.len() {
+            adj[tail[i] as usize].push((head[i], weights_slice[i]));
+        }
+        adj
+    };
+
+    let mut adj = build_adj(metric.weights());
+
+    // Query + update rounds
+    let rounds = 10;
+    let queries_per_round = 400; // * rounds = 4000 reference Dijkstra runs
+    let update_ratio = 0.005; // 0.5% of edges per update (~50 edges)
+
+    for round in 0..rounds {
+        // Prepare random (s,t) distinct pairs
+        let mut pairs = Vec::with_capacity(queries_per_round);
+        while pairs.len() < queries_per_round {
+            let s = rng.gen_range(0..node_count);
+            let t = rng.gen_range(0..node_count);
+            if s != t {
+                pairs.push((s, t));
+            }
+        }
+
+        eprintln!("[round {round}] verifying {} queries", pairs.len());
+
+        // Parallel verification: each thread gets its own query object
+        pairs.par_iter().for_each_init(
+            || CCHQuery::new(&metric),
+            |query, (s, t)| {
+                query.reset();
+                query.add_source(*s, 0);
+                query.add_target(*t, 0);
+                query.run();
+                let dist_cch = query.distance();
+                // Reference Dijkstra
+                let res = pathfinding::prelude::dijkstra(
+                    s,
+                    |&u| adj[u as usize].iter().cloned(),
+                    |&u| u == *t,
+                );
+                let dist_ref = res.map(|(_, c)| c);
+                assert_eq!(
+                    dist_cch, dist_ref,
+                    "distance mismatch s={s} t={t} (round {round})"
+                );
+            },
+        );
+
+        // Skip update after last round
+        if round == rounds - 1 {
+            break;
+        }
+
+        // Prepare sparse updates
+        let updates_count = (edge_count as f64 * update_ratio).ceil() as usize;
+        let mut indices: Vec<usize> = (0..edge_count).collect();
+        indices.shuffle(&mut rng);
+        indices.truncate(updates_count);
+
+        let mut update_map = BTreeMap::<u32, u32>::new();
+        for &idx in &indices {
+            update_map.insert(idx as u32, rng.gen_range(1..=1_000));
+        }
+
+        eprint!(
+            "[round {round}] applying {} partial weight updates...",
+            update_map.len()
+        );
+        updater.apply(&mut metric, &update_map);
+        eprintln!(" done.");
+        // Rebuild adjacency to reflect new weights
+        adj = build_adj(metric.weights());
     }
 }
 
