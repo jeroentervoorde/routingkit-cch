@@ -1,24 +1,25 @@
 # routingkit-cch
 
-![Crates.io](https://img.shields.io/crates/v/routingkit-cch.svg)
-![Docs](https://img.shields.io/docsrs/routingkit-cch)
-![License](https://img.shields.io/crates/l/routingkit-cch)
+[![Crates.io](https://img.shields.io/crates/v/routingkit-cch.svg)](https://crates.io/crates/routingkit-cch)
+[![Docs](https://img.shields.io/docsrs/routingkit-cch)](https://docs.rs/routingkit-cch/)
+[![License](https://img.shields.io/crates/l/routingkit-cch)](https://github.com/RoutingKit/RoutingKit/blob/master/LICENSE)
 
 Rust bindings for the Customizable Contraction Hierarchies (CCH) implementation from [RoutingKit](https://github.com/RoutingKit/RoutingKit). CCH is a three‑phase shortest path acceleration technique for large directed graphs (e.g. road networks) that allows fast re-weighting while keeping very low query latency.
 
 ## Why CCH?
-Traditional Contraction Hierarchies (CH) give extremely fast queries but require rebuilding (slow) when weights change. CCH cleanly separates:
-1. **Preprocessing** – topology + node ordering only (expensive but weight agnostic)
-2. **Customization** – inject / update edge weights (fast, parallelizable)
-3. **Query** – run many multi-source / multi-target shortest paths (microseconds)
+CustomizableContractionHierarchies (CCH) are an index-based speedup technique for shortest paths in directed graphs that can quickly be adapted to new weights. CCHs use, contrary to regulars CHs, a three phase setup:
 
-This enables scenarios like: per-user cost profiles, frequent traffic updates, dynamic restrictions, or “what-if” analysis without full rebuilds.
+1. Preprocessing
+2. Customization
+3. Query
+
+The preprocessing is slow but does not rely on the arc weights. The Customization introduces the weights and is reasonably fast. Finally, the actual paths are computed in the query phase. A common setup consists of doing the preprocessing once and the customization per user upon login. Further one can use a customization to incorporate live-traffic updates.
 
 ## Features
-- Safe(ish) ergonomic Rust API on top of proven C++ core via `cxx`.
+- Safe ergonomic Rust API on top of proven C++ core via [`cxx`](https://cxx.rs/).
 - Build indices from raw edge lists (tail/head arrays).
 - Ordering helpers: nested dissection (inertial separator heuristic) and degree fallback.
-- Sequential & parallel customization.
+- Sequential & parallel customization, and partial weight update afterwards.
 - Reusable query object supporting multi-source / multi-target searches.
 - Path extraction: node sequence & original arc id sequence.
 - Thread-safe sharing of immutable structures (`CCH`, `CCHMetric`).
@@ -41,7 +42,7 @@ git submodule update --init --recursive
 ```
 Requirements: C++17 compiler (MSVC / gcc / clang).  
 OpenMP is enabled automatically by the build script; ensure your toolchain provides an OpenMP runtime (e.g. install libomp on macOS).
-Without it the build may fail or customization will be single‑threaded in a future fallback.  
+Without it the build may fail when `CCHMetric::parallel_new` is called.  
 
 ## Quick Start
 ```rust
@@ -98,7 +99,21 @@ let mut updater = CCHMetricPartialUpdater::new(&cch);
 updater.apply(&mut metric, &BTreeMap::from_iter([(12, 900), (77, 450)]));
 // New queries now see updated weights.
 ```
-Internally this uses RoutingKit's `CustomizableContractionHierarchyPartialCustomization`.
+
+## Query
+```rust,ignore
+let mut q = CCHQuery::new(&metric);
+q.add_source(0, 0);
+q.add_target(3, 0);
+q.run();
+printf("{}", q.distance());
+q.reset(); // much cheaper than `CCHQuery::new`
+q.add_source(2, 0);
+q.add_target(5, 0);
+q.run();
+// ...
+```
+`CCHQuery` is not thread-safe; create one instance per thread and reuse it within thread via `reset()`, which is far cheaper than `CCHQuery::new`.
 
 ## Path Reconstruction
 After `run()`:
@@ -107,10 +122,11 @@ After `run()`:
 - `arc_path()` -> `Vec<original_arc_id>` (empty = unreachable)
 
 ## Thread Safety
-| Type        | Send | Sync | Notes                                         |
-| ----------- | ---- | ---- | --------------------------------------------- |
-| `CCH`       | yes  | yes  | Immutable after build                         |
-| `CCHMetric` | yes  | yes  | Read-only after customization                 |
-| `CCHQuery`  | yes  | no   | Internal mutable labels; reuse with `reset()` |
+| Type                      | Send | Sync | Notes                                          |
+| ------------------------- | ---- | ---- | ---------------------------------------------- |
+| `CCH`                     | yes  | yes  | Immutable after build                          |
+| `CCHMetric`               | yes  | yes  | Read-only after customization / partial-update |
+| `CCHQuery`                | yes  | no   | Internal mutable labels; reuse with `reset()`  |
+| `CCHMetricPartialUpdater` | no   | no   | Should have nothing to do with parallel        |
 
 Create separate queries per thread for parallel batch querying.
