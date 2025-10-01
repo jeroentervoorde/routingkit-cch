@@ -70,7 +70,7 @@ fn test_build_graph_arrays() {
 
 #[test]
 fn test_load_paths() {
-    let deserialized: Vec<((String, usize), Vec<usize>, (usize, usize))> =
+    let deserialized: Vec<(serde_pickle::Value, Vec<usize>, (usize, usize))> =
         serde_pickle::from_reader(std::fs::File::open(TRIPS_PATH).unwrap(), Default::default())
             .unwrap();
     println!("Loaded {} paths. Showing first 5:", deserialized.len());

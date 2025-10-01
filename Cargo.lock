@@ -482,6 +482,7 @@ dependencies = [
  "pathfinding",
  "rand",
  "rayon",
+ "serde",
  "serde-pickle",
  "shapefile",
 ]
