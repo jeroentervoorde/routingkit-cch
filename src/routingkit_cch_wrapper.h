@@ -31,6 +31,13 @@ namespace rk_wrap
         explicit CCHQuery(RoutingKit::CustomizableContractionHierarchyQuery &&x) : inner(std::move(x)) {}
     };
 
+    // Wrapper for partial customization object
+    struct CCHPartial
+    {
+        RoutingKit::CustomizableContractionHierarchyPartialCustomization inner;
+        explicit CCHPartial(const RoutingKit::CustomizableContractionHierarchy &cch) : inner(cch) {}
+    };
+
     std::unique_ptr<CCH> cch_new(rust::Slice<const uint32_t> order,
                                  rust::Slice<const uint32_t> tail,
                                  rust::Slice<const uint32_t> head,
@@ -66,11 +73,18 @@ namespace rk_wrap
         uint32_t node_count,
         rust::Slice<const uint32_t> tail,
         rust::Slice<const uint32_t> head);
+
+    // Partial customization API
+    std::unique_ptr<CCHPartial> cch_partial_new(const CCH &cch);
+    void cch_partial_reset(CCHPartial &partial);
+    void cch_partial_update_arc(CCHPartial &partial, uint32_t arc);
+    void cch_partial_customize(CCHPartial &partial, CCHMetric &metric);
 }
 
 // Expose for cxx bridge
 using rk_wrap::CCH;
 using rk_wrap::CCHMetric;
+using rk_wrap::CCHPartial;
 using rk_wrap::CCHQuery;
 
 std::unique_ptr<CCH> cch_new(rust::Slice<const uint32_t> order,
@@ -98,3 +112,8 @@ rust::Vec<uint32_t> cch_compute_order_degree(
     uint32_t node_count,
     rust::Slice<const uint32_t> tail,
     rust::Slice<const uint32_t> head);
+
+std::unique_ptr<CCHPartial> cch_partial_new(const CCH &cch);
+void cch_partial_reset(CCHPartial &partial);
+void cch_partial_update_arc(CCHPartial &partial, uint32_t arc);
+void cch_partial_customize(CCHPartial &partial, CCHMetric &metric);

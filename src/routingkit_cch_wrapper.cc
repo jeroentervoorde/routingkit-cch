@@ -198,6 +198,27 @@ rust::Vec<uint32_t> rk_wrap::cch_compute_order_degree(
     return out;
 }
 
+// -------- Partial customization wrappers --------
+std::unique_ptr<CCHPartial> rk_wrap::cch_partial_new(const CCH &cch)
+{
+    return std::unique_ptr<CCHPartial>(new CCHPartial(cch.inner));
+}
+
+void rk_wrap::cch_partial_reset(CCHPartial &partial)
+{
+    partial.inner.reset();
+}
+
+void rk_wrap::cch_partial_update_arc(CCHPartial &partial, uint32_t arc)
+{
+    partial.inner.update_arc(arc);
+}
+
+void rk_wrap::cch_partial_customize(CCHPartial &partial, CCHMetric &metric)
+{
+    partial.inner.customize(metric.inner);
+}
+
 // Expose C functions for cxx (forwarders)
 std::unique_ptr<CCH> cch_new(rust::Slice<const uint32_t> order,
                              rust::Slice<const uint32_t> tail,
@@ -230,3 +251,8 @@ rust::Vec<uint32_t> cch_compute_order_degree(
     uint32_t node_count,
     rust::Slice<const uint32_t> tail,
     rust::Slice<const uint32_t> head) { return rk_wrap::cch_compute_order_degree(node_count, tail, head); }
+
+std::unique_ptr<CCHPartial> cch_partial_new(const CCH &cch) { return rk_wrap::cch_partial_new(cch); }
+void cch_partial_reset(CCHPartial &partial) { rk_wrap::cch_partial_reset(partial); }
+void cch_partial_update_arc(CCHPartial &partial, uint32_t arc) { rk_wrap::cch_partial_update_arc(partial, arc); }
+void cch_partial_customize(CCHPartial &partial, CCHMetric &metric) { rk_wrap::cch_partial_customize(partial, metric); }

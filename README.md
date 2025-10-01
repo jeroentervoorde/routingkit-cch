@@ -55,7 +55,7 @@ let node_count = 4;
 
 let order = compute_order_degree(node_count, &tail, &head); // O(m log n) light heuristic
 let cch = CCH::new(&order, &tail, &head, false);
-let metric = CCHMetric::new(&cch, &weights); // customization inside
+let metric = CCHMetric::new(&cch, weights.clone()); // customization inside
 
 let mut q = CCHQuery::new(&metric);
 q.add_source(0, 0);
@@ -75,10 +75,22 @@ Better separators -> faster customization & queries. External advanced orderers 
 ## (Parallel) Customization
 ```rust
 use routingkit_cch::{CCH, CCHMetric};
-let metric = CCHMetric::new(&cch, &weights); // single thread
-let metric = CCHMetric::parallel_new(&cch, &weights, 0); // 0 -> auto threads
+let metric = CCHMetric::new(&cch, weights.clone()); // single thread
+let metric = CCHMetric::parallel_new(&cch, weights.clone(), 0); // 0 -> auto threads
 ```
 Use when graphs are large enough; for tiny graphs overhead may outweigh benefit.
+
+## Incremental (Partial) Weight Updates
+If only a small subset of arc weights change (e.g. traffic incidents), you can avoid a full re-customization:
+```rust
+let mut metric = CCHMetric::parallel_new(&cch, weights.clone(), 0);
+let mut updater = CCHMetricPartialUpdater::new(&cch);
+// ... run queries ...
+// Update two arcs (id 12 -> 900, id 77 -> 450)
+updater.apply(&mut metric, &BTreeMap::from_iter([(12, 900), (77, 450)]));
+// New queries now see updated weights.
+```
+Internally this uses RoutingKit's `CustomizableContractionHierarchyPartialCustomization`.
 
 ## Path Reconstruction
 After `run()`:
@@ -87,10 +99,10 @@ After `run()`:
 - `arc_path()` -> `Vec<original_arc_id>` (empty = unreachable)
 
 ## Thread Safety
-| Type       | Send | Sync | Notes |
-|------------|------|------|-------|
-| `CCH`      | yes  | yes  | Immutable after build |
-| `CCHMetric`| yes  | yes  | Read-only after customization |
-| `CCHQuery` | yes  | no   | Internal mutable labels; reuse with `reset()` |
+| Type        | Send | Sync | Notes                                         |
+| ----------- | ---- | ---- | --------------------------------------------- |
+| `CCH`       | yes  | yes  | Immutable after build                         |
+| `CCHMetric` | yes  | yes  | Read-only after customization                 |
+| `CCHQuery`  | yes  | no   | Internal mutable labels; reuse with `reset()` |
 
 Create separate queries per thread for parallel batch querying.

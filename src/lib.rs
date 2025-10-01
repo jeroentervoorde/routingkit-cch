@@ -32,7 +32,7 @@
 //! let cch = CCH::new(&order, &tail, &head, false);
 //!
 //! // 2) Bind weights & customize (done inside CCHMetric::new here).
-//! let metric = CCHMetric::new(&cch, &weights);
+//! let metric = CCHMetric::new(&cch, weights.clone());
 //!
 //! // 3) Run a shortest path query 0 -> 3.
 //! let mut q = CCHQuery::new(&metric);
@@ -64,6 +64,7 @@ mod ffi {
         type CCH; // CustomizableContractionHierarchy
         type CCHMetric; // CustomizableContractionHierarchyMetric
         type CCHQuery; // CustomizableContractionHierarchyQuery
+        type CCHPartial; // CustomizableContractionHierarchyPartialCustomization
 
         /// Build a Customizable Contraction Hierarchy.
         /// Arguments:
@@ -88,6 +89,12 @@ mod ffi {
 
         /// Parallel customization; thread_count==0 picks an internal default (#procs if OpenMP, else 1).
         unsafe fn cch_metric_parallel_customize(metric: Pin<&mut CCHMetric>, thread_count: u32);
+
+        // Partial customization API
+        unsafe fn cch_partial_new(cch: &CCH) -> UniquePtr<CCHPartial>;
+        unsafe fn cch_partial_reset(partial: Pin<&mut CCHPartial>);
+        unsafe fn cch_partial_update_arc(partial: Pin<&mut CCHPartial>, arc: u32);
+        unsafe fn cch_partial_customize(partial: Pin<&mut CCHPartial>, metric: Pin<&mut CCHMetric>);
 
         /// Allocate a new reusable query object bound to a metric.
         unsafe fn cch_query_new(metric: &CCHMetric) -> UniquePtr<CCHQuery>;
@@ -198,56 +205,93 @@ impl CCH {
 
 pub struct CCHMetric<'a> {
     inner: UniquePtr<ffi::CCHMetric>,
-    // Borrow both the CCH and the weight slice (zero-copy). The weight memory must
-    // outlive the metric because C++ now only keeps a raw pointer.
-    _marker: std::marker::PhantomData<(&'a CCH, &'a [u32])>,
+    weights: Box<[u32]>, // owned stable backing storage (no reallocation)
+    cch: &'a CCH,
 }
 
 impl<'a> CCHMetric<'a> {
     /// Create and customize a metric (weight binding) for a given [`CCH`].
     ///
-    /// This allocates internal arrays and immediately runs the (sequential) customization step,
-    /// computing upward/downward shortcut weights. The provided `weights` slice must have length
-    /// equal to the number of original arcs (`tail.len()`). The slice is *not* copied: the C++
-    /// code keeps a raw pointer. Therefore the caller must guarantee that `weights` outlives the
-    /// metric (lifetime `'a`). If you modify entries of `weights` afterwards they are **not**
-    /// reflected until you rebuild or (future) recustomize support is added in Rust – currently
-    /// the safe wrapper does not expose an incremental update API.
-    ///
-    /// For multi-core machines consider [`CCHMetric::parallel_new`] which invokes the OpenMP based
-    /// parallel customization routine.
-    ///
-    /// Cost: near-linear in arc count times a small constant dependent on separator quality.
-    ///
-    /// Panics: never (UB if `weights` length mismatches underlying CCH – prevented by C++ asserts).
-    pub fn new(cch: &'a CCH, weights: &'a [u32]) -> Self {
+    /// Owns the weight vector so that future partial updates can safely mutate it.
+    /// The C++ side stores only a raw pointer; it is valid for the lifetime of `self`.
+    pub fn new(cch: &'a CCH, weights: Vec<u32>) -> Self {
+        let boxed: Box<[u32]> = weights.into_boxed_slice();
+        // Temporarily borrow as slice for FFI creation
         let metric = unsafe {
-            let mut metric = cch_metric_new(&cch.inner, weights);
+            let mut metric = cch_metric_new(&cch.inner, &boxed);
             cch_metric_customize(metric.as_mut().unwrap());
             metric
         };
         CCHMetric {
             inner: metric,
-            _marker: std::marker::PhantomData,
+            weights: boxed,
+            cch,
         }
     }
 
-    /// Like [`CCHMetric::new`] but performs the customization using the parallel routine.
-    ///
-    /// `thread_count` selects how many worker threads the underlying OpenMP implementation may
-    /// utilize. Use `0` to let the library pick a default (usually the hardware concurrency).
-    /// Parallel speedups saturate quickly; for small graphs the overhead can dominate.
-    ///
-    /// Safety & lifetime invariants match [`CCHMetric::new`].
-    pub fn parallel_new(cch: &'a CCH, weights: &'a [u32], thread_count: u32) -> Self {
+    /// Parallel customization variant.
+    pub fn parallel_new(cch: &'a CCH, weights: Vec<u32>, thread_count: u32) -> Self {
+        let boxed: Box<[u32]> = weights.into_boxed_slice();
         let metric = unsafe {
-            let mut metric = cch_metric_new(&cch.inner, weights);
+            let mut metric = cch_metric_new(&cch.inner, &boxed);
             cch_metric_parallel_customize(metric.as_mut().unwrap(), thread_count);
             metric
         };
         CCHMetric {
             inner: metric,
+            weights: boxed,
+            cch,
+        }
+    }
+
+    /// weights slice
+    pub fn weights(&self) -> &[u32] {
+        &self.weights
+    }
+}
+
+/// Reusable partial customization helper. Construct once if you perform many small incremental
+/// weight updates; this avoids reallocating O(m) internal buffers each call.
+pub struct CCHMetricPartialUpdater<'a> {
+    partial: UniquePtr<ffi::CCHPartial>,
+    cch: &'a CCH,
+    _marker: std::marker::PhantomData<std::cell::Cell<()>>, // Not Sync
+}
+
+impl<'a> CCHMetricPartialUpdater<'a> {
+    /// Create a reusable partial updater bound to a given CCH. You can then apply it to any
+    /// metric built from the same CCH (even if you rebuild metrics with different weight sets).
+    pub fn new(cch: &'a CCH) -> Self {
+        let partial = unsafe { cch_partial_new(cch.inner.as_ref().unwrap()) };
+        CCHMetricPartialUpdater {
+            partial,
+            cch,
             _marker: std::marker::PhantomData,
+        }
+    }
+
+    /// Apply a batch of (arc, new_weight) updates to the given metric and run partial customize.
+    pub fn apply<T>(&mut self, metric: &mut CCHMetric<'a>, updates: &T)
+    where
+        T: for<'b> std::ops::Index<&'b u32, Output = u32>,
+        for<'b> &'b T: IntoIterator<Item = (&'b u32, &'b u32)>,
+    {
+        assert!(
+            std::ptr::eq(metric.cch, self.cch),
+            "CCHMetricPartialUpdater must be used with metrics from the same CCH"
+        );
+        for (k, v) in updates {
+            metric.weights[*k as usize] = *v; // safe: length invariant unchanged (Box<[u32]>)
+        }
+        unsafe {
+            cch_partial_reset(self.partial.as_mut().unwrap());
+            for (k, _) in updates {
+                cch_partial_update_arc(self.partial.as_mut().unwrap(), *k);
+            }
+            cch_partial_customize(
+                self.partial.as_mut().unwrap(),
+                metric.inner.as_mut().unwrap(),
+            );
         }
     }
 }

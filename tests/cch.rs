@@ -1,8 +1,14 @@
 use indicatif::{MultiProgress, ProgressBar, ProgressIterator};
 use pathfinding::prelude::dijkstra;
 use rayon::prelude::*;
-use routingkit_cch::{CCH, CCHMetric, CCHQuery, compute_order_inertial, shp_utils};
-use std::sync::LazyLock;
+use routingkit_cch::{
+    CCH, CCHMetric, CCHMetricPartialUpdater, CCHQuery, compute_order_degree,
+    compute_order_inertial, shp_utils,
+};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::LazyLock,
+};
 
 const STYLE: LazyLock<indicatif::ProgressStyle> = LazyLock::new(|| {
     indicatif::ProgressStyle::with_template(
@@ -55,7 +61,7 @@ fn compare_with_pathfinding() {
         eprintln!("Building CCH...");
         let cch = CCH::new(&order, &tail, &head, false);
         eprintln!("Building metric + customization...");
-        let metric = CCHMetric::parallel_new(&cch, &weights, 0);
+        let metric = CCHMetric::parallel_new(&cch, weights.clone(), 0);
 
         // Build adjacency for reference dijkstra using pathfinding crate
         eprintln!("Building adjacency for pathfinding reference...");
@@ -123,4 +129,59 @@ fn compare_with_pathfinding() {
             })
             .count();
     }
+}
+
+#[test]
+fn partial_update_with_reusable_updater() {
+    // Same base graph as previous test: 0->1 (5), 1->2 (7), 0->2 (20)
+    let tail = vec![0, 1, 0];
+    let head = vec![1, 2, 2];
+    let weights = vec![5u32, 7u32, 20u32];
+    let order = compute_order_degree(3, &tail, &head);
+    let cch = CCH::new(&order, &tail, &head, false);
+    let mut metric = CCHMetric::new(&cch, weights);
+    // Build reusable updater (now constructed from &CCH)
+    let mut updater = CCHMetricPartialUpdater::new(&cch);
+    // Baseline shortest 0->2 is 12
+    let mut q = CCHQuery::new(&metric);
+    q.add_source(0, 0);
+    q.add_target(2, 0);
+    q.run();
+    assert_eq!(q.distance(), Some(12));
+    // 1) Increase 0->1 to 30 (direct 0->2 wins: 20)
+    updater.apply(&mut metric, &HashMap::<u32, u32>::from_iter([(0, 30)]));
+    let mut q2 = CCHQuery::new(&metric);
+    q2.add_source(0, 0);
+    q2.add_target(2, 0);
+    q2.run();
+    assert_eq!(q2.distance(), Some(20));
+    assert_eq!(metric.weights(), vec![30, 7, 20]);
+    // 2) Decrease 1->2 to 1 (path 0->1->2 becomes 31, still worse)
+    updater.apply(&mut metric, &BTreeMap::from_iter([(1, 1)]));
+    let mut q3 = CCHQuery::new(&metric);
+    q3.add_source(0, 0);
+    q3.add_target(2, 0);
+    q3.run();
+    assert_eq!(q3.distance(), Some(20));
+    assert_eq!(metric.weights(), vec![30, 1, 20]);
+    // 3) Decrease 0->1 to 2 (now 2+1=3 wins)
+    updater.apply(&mut metric, &BTreeMap::from_iter([(0, 2)]));
+    let mut q4 = CCHQuery::new(&metric);
+    q4.add_source(0, 0);
+    q4.add_target(2, 0);
+    q4.run();
+    assert_eq!(q4.distance(), Some(3));
+    assert_eq!(metric.weights(), vec![2, 1, 20]);
+    // 4) Batch update with duplicates: set 0->1 to 4 (overwritten), then 6 final; 1->2 to 10 final.
+    updater.apply(
+        &mut metric,
+        &HashMap::<u32, u32>::from_iter([(0, 4), (0, 6), (1, 12), (1, 10)]),
+    );
+    let mut q5 = CCHQuery::new(&metric);
+    q5.add_source(0, 0);
+    q5.add_target(2, 0);
+    q5.run();
+    // Now path via 0->1->2 is 6+10=16 vs direct 20
+    assert_eq!(q5.distance(), Some(16));
+    assert_eq!(metric.weights(), vec![6, 10, 20]);
 }
