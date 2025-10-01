@@ -38,8 +38,8 @@ fn compare_with_pathfinding() {
     for city in ["beijing", "chengdu", "cityindia", "harbin", "porto"] {
         eprintln!("====\nComparing with pathfinding for city: {}\n====", city);
         let (Ok(edges), Ok(nodes)) = (
-            shp_utils::load_edges(&format!("data/{city}/edges.shp")),
-            shp_utils::load_nodes(&format!("data/{city}/nodes.shp")),
+            shp_utils::load_edges(&format!("data/{city}_data/map/edges.shp")),
+            shp_utils::load_nodes(&format!("data/{city}_data/map/nodes.shp")),
         ) else {
             eprintln!("Failed to load data for city: {}", city);
             continue;
