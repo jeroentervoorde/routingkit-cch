@@ -4,7 +4,7 @@
 pub mod shp_utils;
 
 #[cxx::bridge]
-mod ffi {
+pub mod ffi {
     extern "C++" {
         include!("routingkit_cch_wrapper.h");
 
@@ -72,17 +72,14 @@ mod ffi {
         /// Extract the arc (edge) path corresponding to the shortest path.
         /// Each entry is an original arc id (after shortcut unpacking).
         unsafe fn cch_query_arc_path(query: &CCHQuery) -> Vec<u32>;
-    }
 
-    unsafe extern "C++" {
-        include!("routingkit_cch_wrapper.h");
         /// Compute a high-quality nested dissection order using inertial flow separators.
         /// Inputs:
         /// * node_count: number of nodes
         /// * tail/head: directed arcs (treated as undirected for ordering)
         /// * latitude/longitude: per-node coords (len = node_count)
         /// Returns: order permutation (position -> node id).
-        fn cch_compute_order_inertial(
+        unsafe fn cch_compute_order_inertial(
             node_count: u32,
             tail: &[u32],
             head: &[u32],
@@ -92,7 +89,8 @@ mod ffi {
 
         /// Fast fallback order: nodes sorted by (degree, id) ascending.
         /// Lower quality than nested dissection but zero extra data needed.
-        fn cch_compute_order_degree(node_count: u32, tail: &[u32], head: &[u32]) -> Vec<u32>;
+        unsafe fn cch_compute_order_degree(node_count: u32, tail: &[u32], head: &[u32])
+        -> Vec<u32>;
     }
 }
 
@@ -116,13 +114,62 @@ unsafe impl Send for ffi::CCHQuery {}
 use cxx::UniquePtr;
 use ffi::*;
 
-pub use ffi::{
-    cch_compute_order_degree as compute_order_degree,
-    cch_compute_order_inertial as compute_order_inertial,
-};
+fn is_permutation(arr: &[u32]) -> bool {
+    let n = arr.len();
+    let mut seen = vec![false; n];
+    for &val in arr {
+        if (val as usize) >= n || seen[val as usize] {
+            return false;
+        }
+        seen[val as usize] = true;
+    }
+    true
+}
+
+pub fn compute_order_degree(node_count: u32, tail: &[u32], head: &[u32]) -> Vec<u32> {
+    debug_assert!(
+        tail.iter()
+            .chain(head)
+            .max()
+            .map_or(true, |&v| v < node_count),
+        "tail/head contain node ids outside valid range"
+    );
+    assert!(
+        tail.len() == head.len(),
+        "tail and head arrays must have the same length"
+    );
+    unsafe { cch_compute_order_degree(node_count, tail, head) }
+}
+
+pub fn compute_order_inertial(
+    node_count: u32,
+    tail: &[u32],
+    head: &[u32],
+    latitude: &[f32],
+    longitude: &[f32],
+) -> Vec<u32> {
+    debug_assert!(
+        tail.iter()
+            .chain(head)
+            .max()
+            .map_or(true, |&v| v < node_count),
+        "tail/head contain node ids outside valid range"
+    );
+    assert!(
+        tail.len() == head.len(),
+        "tail and head arrays must have the same length"
+    );
+    assert!(
+        latitude.len() == (node_count as usize) && longitude.len() == (node_count as usize),
+        "latitude/longitude length must equal node count"
+    );
+    unsafe { cch_compute_order_inertial(node_count, tail, head, latitude, longitude) }
+}
 
 pub struct CCH {
     inner: UniquePtr<ffi::CCH>,
+    edge_count: usize,
+    node_count: usize,
 }
 
 impl CCH {
@@ -145,8 +192,27 @@ impl CCH {
     ///
     /// Panics: never (undefined behavior if input slices have inconsistent lengths – guarded by `cxx`).
     pub fn new(order: &[u32], tail: &[u32], head: &[u32], filter_always_inf_arcs: bool) -> Self {
+        debug_assert!(
+            is_permutation(order),
+            "order array is not a valid permutation"
+        );
+        debug_assert!(
+            tail.iter()
+                .chain(head)
+                .max()
+                .map_or(true, |&v| (v as usize) < order.len()),
+            "tail/head contain node ids outside valid range"
+        );
+        assert!(
+            tail.len() == head.len(),
+            "tail and head arrays must have the same length"
+        );
         let cch = unsafe { cch_new(order, tail, head, filter_always_inf_arcs) };
-        CCH { inner: cch }
+        CCH {
+            inner: cch,
+            edge_count: tail.len(),
+            node_count: order.len(),
+        }
     }
 }
 
@@ -162,6 +228,10 @@ impl<'a> CCHMetric<'a> {
     /// Owns the weight vector so that future partial updates can safely mutate it.
     /// The C++ side stores only a raw pointer; it is valid for the lifetime of `self`.
     pub fn new(cch: &'a CCH, weights: Vec<u32>) -> Self {
+        assert!(
+            weights.len() == cch.edge_count,
+            "weights length must equal arc count",
+        );
         let boxed: Box<[u32]> = weights.into_boxed_slice();
         // Temporarily borrow as slice for FFI creation
         let metric = unsafe {
@@ -178,6 +248,10 @@ impl<'a> CCHMetric<'a> {
 
     /// Parallel customization variant.
     pub fn parallel_new(cch: &'a CCH, weights: Vec<u32>, thread_count: u32) -> Self {
+        assert!(
+            weights.len() == cch.edge_count,
+            "weights length must equal arc count",
+        );
         let boxed: Box<[u32]> = weights.into_boxed_slice();
         let metric = unsafe {
             let mut metric = cch_metric_new(&cch.inner, &boxed);
@@ -285,6 +359,10 @@ impl<'a> CCHQuery<'a> {
     /// Add a source node with an initial distance (normally 0). Multiple calls allow a multi-
     /// source query. Distances let you model already-traversed partial paths.
     pub fn add_source(&mut self, s: u32, dist: u32) {
+        assert!(
+            (s as usize) < self.metric.cch.node_count,
+            "source node id out of range",
+        );
         unsafe {
             cch_query_add_source(self.inner.as_mut().unwrap(), s, dist);
         }
@@ -293,6 +371,10 @@ impl<'a> CCHQuery<'a> {
     /// Add a target node with an initial distance (normally 0). Multiple calls allow multi-target
     /// queries; the algorithm stops when the frontiers settle the optimal distance to any target.
     pub fn add_target(&mut self, t: u32, dist: u32) {
+        assert!(
+            (t as usize) < self.metric.cch.node_count,
+            "target node id out of range",
+        );
         unsafe {
             cch_query_add_target(self.inner.as_mut().unwrap(), t, dist);
         }
@@ -313,9 +395,7 @@ impl<'a> CCHQuery<'a> {
     ///
     /// Panics: if called before `run()`.
     pub fn distance(&self) -> Option<u32> {
-        if !self.runned {
-            panic!("Query distance requested before run()");
-        }
+        assert!(self.runned, "Query distance requested before run()");
         let res = unsafe { cch_query_distance(self.inner.as_ref().unwrap()) };
         if res == (i32::MAX as u32) {
             None
@@ -331,9 +411,7 @@ impl<'a> CCHQuery<'a> {
     /// Panics: if called before `run()`. Returns an empty vector only if source==target and the
     /// implementation chooses to represent a trivial path that way (normally length>=1).
     pub fn node_path(&self) -> Vec<u32> {
-        if !self.runned {
-            panic!("Query node_path requested before run()");
-        }
+        assert!(self.runned, "Query node_path requested before run()");
         unsafe { cch_query_node_path(self.inner.as_ref().unwrap()) }
     }
 
@@ -345,9 +423,7 @@ impl<'a> CCHQuery<'a> {
     ///
     /// Panics: if called before `run()`.
     pub fn arc_path(&self) -> Vec<u32> {
-        if !self.runned {
-            panic!("Query arc_path requested before run()");
-        }
+        assert!(self.runned, "Query arc_path requested before run()");
         unsafe { cch_query_arc_path(self.inner.as_ref().unwrap()) }
     }
 }
