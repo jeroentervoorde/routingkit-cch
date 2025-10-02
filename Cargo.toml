@@ -1,11 +1,11 @@
 [package]
 name = "routingkit-cch"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 description = "Rust bindings for RoutingKit's Customizable Contraction Hierarchies (CCH)"
 license = "BSD-2-Clause"
 repository = "https://github.com/HellOwhatAs/RoutingKit-cch"
-
+readme = "README.md"
 
 [dependencies]
 cxx = "1"
