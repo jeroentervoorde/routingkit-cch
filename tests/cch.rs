@@ -215,7 +215,36 @@ fn random_graph_compare_parallel_partial() {
             |query, (s, t)| {
                 query.add_source(*s, 0);
                 query.add_target(*t, 0);
-                let dist_cch = query.run().distance();
+                let qres = query.run();
+                let dist_cch = qres.distance();
+
+                {
+                    // Verify path correctness: length equal and node_path matches arc_path
+                    let arc_path = qres.arc_path();
+                    let node_path = qres.node_path();
+                    if let Some(dist_cch) = dist_cch {
+                        let weights = metric.weights();
+                        let dist_sum = arc_path.iter().map(|&e| weights[e as usize]).sum::<u32>();
+                        assert_eq!(
+                            dist_cch, dist_sum,
+                            "distance should match sum of arc weights",
+                        );
+                        assert!(
+                            node_path
+                                .windows(2)
+                                .zip(arc_path)
+                                .all(|(uv, e)| tail[e as usize] == uv[0]
+                                    && head[e as usize] == uv[1]),
+                            "node_path should match arc_path"
+                        );
+                    } else {
+                        assert!(
+                            node_path.is_empty() && arc_path.is_empty(),
+                            "paths should be empty if unreachable",
+                        );
+                    }
+                }
+
                 // Reference Dijkstra
                 let res = pathfinding::prelude::dijkstra(
                     s,
