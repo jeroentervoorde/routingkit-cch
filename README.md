@@ -65,11 +65,11 @@ let metric = CCHMetric::new(&cch, weights.clone());
 let mut q = CCHQuery::new(&metric);
 q.add_source(0, 0);
 q.add_target(3, 0);
-q.run();
-assert_eq!(q.distance(), Some(22));
-let node_path = q.node_path();
+let res = q.run();
+assert_eq!(res.distance(), Some(22));
+let node_path = res.node_path();
 assert_eq!(node_path, vec![0, 1, 2, 3]);
-let arc_path = q.arc_path();
+let arc_path = res.arc_path();
 assert_eq!(arc_path, vec![0, 1, 2]);
 ```
 
@@ -105,28 +105,32 @@ updater.apply(&mut metric, &BTreeMap::from_iter([(12, 900), (77, 450)]));
 let mut q = CCHQuery::new(&metric);
 q.add_source(0, 0);
 q.add_target(3, 0);
-q.run();
-printf("{}", q.distance());
-q.reset(); // much cheaper than `CCHQuery::new`
+{
+    let res = q.run();
+    printf("{:?}", res.distance());
+} // drop res before reusing q since res takes &mut q
 q.add_source(2, 0);
 q.add_target(5, 0);
-q.run();
-// ...
+{
+    let res = q.run();
+    // ...
+}
 ```
-`CCHQuery` is not thread-safe; create one instance per thread and reuse it within thread via `reset()`, which is far cheaper than `CCHQuery::new`.
+`CCHQuery` is not thread-safe; create one instance per thread and reuse it is far cheaper than constructing a new one.
 
 ## Path Reconstruction
-After `run()`:
-- `distance()` -> `Option<u32>` (None = unreachable)
-- `node_path()` -> `Vec<node_id>` (empty = unreachable)
-- `arc_path()` -> `Vec<original_arc_id>` (empty = unreachable)
+After `run() -> CCHQueryResult`:
+- `CCHQueryResult::distance()` -> `Option<u32>` (None = unreachable)
+- `CCHQueryResult::node_path()` -> `Vec<node_id>` (empty = unreachable)
+- `CCHQueryResult::arc_path()` -> `Vec<original_arc_id>` (empty = unreachable)
 
 ## Thread Safety
-| Type                      | Send | Sync | Notes                                          |
-| ------------------------- | ---- | ---- | ---------------------------------------------- |
-| `CCH`                     | yes  | yes  | Immutable after build                          |
-| `CCHMetric`               | yes  | yes  | Read-only after customization / partial-update |
-| `CCHQuery`                | yes  | no   | Internal mutable labels; reuse with `reset()`  |
-| `CCHMetricPartialUpdater` | no   | no   | Should have nothing to do with parallel        |
+| Type                      | Send | Sync | Notes                                             |
+| ------------------------- | ---- | ---- | ------------------------------------------------- |
+| `CCH`                     | yes  | yes  | Immutable after build                             |
+| `CCHMetric`               | yes  | yes  | Read-only after customization / partial-update    |
+| `CCHQuery`                | yes  | no   | Internal mutable labels; reuse it within thread   |
+| `CCHQueryResult`          | yes  | no   | Runned state of `CCHQuery`, actually `&mut` of it |
+| `CCHMetricPartialUpdater` | no   | no   | Should have nothing to do with parallel           |
 
 Create separate queries per thread for parallel batch querying.

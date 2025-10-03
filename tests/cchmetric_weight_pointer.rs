@@ -22,16 +22,14 @@ fn weight_pointer_stability() {
     let mut q1 = routingkit_cch::CCHQuery::new(&metric_b);
     q1.add_source(0, 0);
     q1.add_target(2, 0);
-    q1.run();
-    assert_eq!(q1.distance(), Some(3)); // 1+2 path
+    assert_eq!(q1.run().distance(), Some(3)); // 1+2 path
 
     // Now create another metric with different weight to check independence
     let metric_c = CCHMetric::new(&cch, vec![1, 50, 10]); // path 0->2 direct =10 now better than 1+50=51
     let mut q_c = routingkit_cch::CCHQuery::new(&metric_c);
     q_c.add_source(0, 0);
     q_c.add_target(2, 0);
-    q_c.run();
-    assert_eq!(q_c.distance(), Some(10));
+    assert_eq!(q_c.run().distance(), Some(10));
 
     // Swap metric_b and metric_c; distances should follow underlying weight vectors
     let mut metric_c = metric_c; // mutable
@@ -41,15 +39,13 @@ fn weight_pointer_stability() {
     let mut q2 = routingkit_cch::CCHQuery::new(&metric_b);
     q2.add_source(0, 0);
     q2.add_target(2, 0);
-    q2.run();
-    assert_eq!(q2.distance(), Some(10));
+    assert_eq!(q2.run().distance(), Some(10));
 
     // metric_c now has original fast weights [1,2,10]
     let mut q3 = routingkit_cch::CCHQuery::new(&metric_c);
     q3.add_source(0, 0);
     q3.add_target(2, 0);
-    q3.run();
-    assert_eq!(q3.distance(), Some(3));
+    assert_eq!(q3.run().distance(), Some(3));
 
     // Mutate weights in metric_c via a reusable updater style patch equivalent
     // (since current API may provide partial update elsewhere; emulate by rebuilding new metric)
@@ -58,8 +54,7 @@ fn weight_pointer_stability() {
     let mut qd = routingkit_cch::CCHQuery::new(&metric_d);
     qd.add_source(0, 0);
     qd.add_target(2, 0);
-    qd.run();
-    assert_eq!(qd.distance(), Some(2));
+    assert_eq!(qd.run().distance(), Some(2));
 }
 
 // Build a synthetic layered directed graph:
@@ -129,8 +124,7 @@ fn weight_pointer_stability_large() {
             let mut q = CCHQuery::new(m);
             q.add_source(s, 0);
             q.add_target(t, 0);
-            q.run();
-            if let Some(d) = q.distance() {
+            if let Some(d) = q.run().distance() {
                 total += d as u64;
                 reached += 1;
             }

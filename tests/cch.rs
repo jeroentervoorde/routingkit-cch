@@ -113,11 +113,9 @@ fn compare_with_pathfinding() {
                 pb.set_prefix(format!("{city}-{:<num_digits$}", chunk_id));
                 pb.set_style(STYLE.clone());
                 for (i, &((s, t), _)) in chunk.iter().enumerate().progress_with(pb) {
-                    query.reset();
                     query.add_source(s, 0);
                     query.add_target(t, 0);
-                    query.run();
-                    let dist_cch = query.distance();
+                    let dist_cch = query.run().distance();
 
                     // pathfinding dijkstra
                     let result = dijkstra(&s, |&u| adj[u as usize].iter().cloned(), |&u| u == t);
@@ -215,11 +213,9 @@ fn random_graph_compare_parallel_partial() {
         pairs.par_iter().for_each_init(
             || CCHQuery::new(&metric),
             |query, (s, t)| {
-                query.reset();
                 query.add_source(*s, 0);
                 query.add_target(*t, 0);
-                query.run();
-                let dist_cch = query.distance();
+                let dist_cch = query.run().distance();
                 // Reference Dijkstra
                 let res = pathfinding::prelude::dijkstra(
                     s,
@@ -276,31 +272,27 @@ fn partial_update_with_reusable_updater() {
     let mut q = CCHQuery::new(&metric);
     q.add_source(0, 0);
     q.add_target(2, 0);
-    q.run();
-    assert_eq!(q.distance(), Some(12));
+    assert_eq!(q.run().distance(), Some(12));
     // 1) Increase 0->1 to 30 (direct 0->2 wins: 20)
     updater.apply(&mut metric, &HashMap::<u32, u32>::from_iter([(0, 30)]));
     let mut q2 = CCHQuery::new(&metric);
     q2.add_source(0, 0);
     q2.add_target(2, 0);
-    q2.run();
-    assert_eq!(q2.distance(), Some(20));
+    assert_eq!(q2.run().distance(), Some(20));
     assert_eq!(metric.weights(), vec![30, 7, 20]);
     // 2) Decrease 1->2 to 1 (path 0->1->2 becomes 31, still worse)
     updater.apply(&mut metric, &BTreeMap::from_iter([(1, 1)]));
     let mut q3 = CCHQuery::new(&metric);
     q3.add_source(0, 0);
     q3.add_target(2, 0);
-    q3.run();
-    assert_eq!(q3.distance(), Some(20));
+    assert_eq!(q3.run().distance(), Some(20));
     assert_eq!(metric.weights(), vec![30, 1, 20]);
     // 3) Decrease 0->1 to 2 (now 2+1=3 wins)
     updater.apply(&mut metric, &BTreeMap::from_iter([(0, 2)]));
     let mut q4 = CCHQuery::new(&metric);
     q4.add_source(0, 0);
     q4.add_target(2, 0);
-    q4.run();
-    assert_eq!(q4.distance(), Some(3));
+    assert_eq!(q4.run().distance(), Some(3));
     assert_eq!(metric.weights(), vec![2, 1, 20]);
     // 4) Batch update with duplicates: set 0->1 to 4 (overwritten), then 6 final; 1->2 to 10 final.
     updater.apply(
@@ -310,8 +302,7 @@ fn partial_update_with_reusable_updater() {
     let mut q5 = CCHQuery::new(&metric);
     q5.add_source(0, 0);
     q5.add_target(2, 0);
-    q5.run();
     // Now path via 0->1->2 is 6+10=16 vs direct 20
-    assert_eq!(q5.distance(), Some(16));
+    assert_eq!(q5.run().distance(), Some(16));
     assert_eq!(metric.weights(), vec![6, 10, 20]);
 }

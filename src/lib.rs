@@ -26,7 +26,7 @@ pub mod ffi {
         ) -> UniquePtr<CCH>;
 
         /// Create a metric (weights binding) for an existing CCH.
-        /// Copies the weight slice once; length must equal arc count.
+        /// Keeps pointer to weights in CCHMetric; weights length must equal arc count.
         unsafe fn cch_metric_new(cch: &CCH, weights: &[u32]) -> UniquePtr<CCHMetric>;
 
         /// Run customization to compute upward/downward shortcut weights.
@@ -126,6 +126,9 @@ fn is_permutation(arr: &[u32]) -> bool {
     true
 }
 
+/// Lightweight fill-in reducing order heuristic: sort nodes by (degree, id) ascending.
+/// Fast but lower quality than nested dissection. Use if no coordinates or other data available.
+/// Panics if tail/head have inconsistent lengths or contain invalid node ids.
 pub fn compute_order_degree(node_count: u32, tail: &[u32], head: &[u32]) -> Vec<u32> {
     debug_assert!(
         tail.iter()
@@ -141,6 +144,10 @@ pub fn compute_order_degree(node_count: u32, tail: &[u32], head: &[u32]) -> Vec<
     unsafe { cch_compute_order_degree(node_count, tail, head) }
 }
 
+/// High-quality nested dissection order using inertial flow separators.
+/// Requires per-node coordinates (latitude/longitude) as input.
+/// Panics if tail/head have inconsistent lengths or contain invalid node ids,
+/// or if latitude/longitude lengths do not match node_count.
 pub fn compute_order_inertial(
     node_count: u32,
     tail: &[u32],
@@ -166,6 +173,7 @@ pub fn compute_order_inertial(
     unsafe { cch_compute_order_inertial(node_count, tail, head, latitude, longitude) }
 }
 
+/// Immutable Customizable Contraction Hierarchy index.
 pub struct CCH {
     inner: UniquePtr<ffi::CCH>,
     edge_count: usize,
@@ -190,7 +198,8 @@ impl CCH {
     ///
     /// Thread-safety: resulting object is `Send + Sync` and read-only.
     ///
-    /// Panics: never (undefined behavior if input slices have inconsistent lengths – guarded by `cxx`).
+    /// Panics if `order` is not a valid permutation of node ids,
+    /// or if `tail`/`head` have inconsistent lengths or contain invalid node ids.
     pub fn new(order: &[u32], tail: &[u32], head: &[u32], filter_always_inf_arcs: bool) -> Self {
         debug_assert!(
             is_permutation(order),
@@ -216,17 +225,18 @@ impl CCH {
     }
 }
 
+/// A customized metric (weight binding) for a given [`CCH`].
+/// Keeps ownership of the weight vector so it can be mutated for partial updates.
+/// Thread-safety: `Send + Sync`; read-only for queries.
 pub struct CCHMetric<'a> {
     inner: UniquePtr<ffi::CCHMetric>,
-    weights: Box<[u32]>, // owned stable backing storage (no reallocation)
+    weights: Box<[u32]>, // The C++ side stores only a raw pointer; it is valid for the lifetime of `self`.
     cch: &'a CCH,
 }
 
 impl<'a> CCHMetric<'a> {
     /// Create and customize a metric (weight binding) for a given [`CCH`].
-    ///
     /// Owns the weight vector so that future partial updates can safely mutate it.
-    /// The C++ side stores only a raw pointer; it is valid for the lifetime of `self`.
     pub fn new(cch: &'a CCH, weights: Vec<u32>) -> Self {
         assert!(
             weights.len() == cch.edge_count,
@@ -317,10 +327,11 @@ impl<'a> CCHMetricPartialUpdater<'a> {
     }
 }
 
+/// A reusable shortest-path query object bound to a given [`CCHMetric`].
+/// Thread-safety: `Send` but not `Sync`; holds mutable per-query state.
 pub struct CCHQuery<'a> {
     inner: UniquePtr<ffi::CCHQuery>,
     metric: &'a CCHMetric<'a>,
-    runned: bool,
     _marker: std::marker::PhantomData<std::cell::Cell<()>>, // Not Sync
 }
 
@@ -330,30 +341,13 @@ impl<'a> CCHQuery<'a> {
     /// The query object stores its own frontier / label buffers and can be reset and reused for
     /// many (s, t) pairs or multi-source / multi-target batches. You may have multiple query
     /// objects referencing the same metric concurrently (read-only access to metric data).
-    ///
-    /// Thread-safety: `Send` but not `Sync`; do not mutate from multiple threads simultaneously.
     pub fn new(metric: &'a CCHMetric<'a>) -> Self {
         let query = unsafe { cch_query_new(&metric.inner) };
         CCHQuery {
             inner: query,
             metric: metric,
-            runned: false,
             _marker: std::marker::PhantomData,
         }
-    }
-
-    /// Reset internal state (clears sources, targets, labels) so the object can be reused.
-    ///
-    /// Call this before configuring a new multi-source / multi-target batch. Does *not* change
-    /// the bound metric pointer – create a new query if you need a different metric.
-    pub fn reset(&mut self) {
-        unsafe {
-            cch_query_reset(
-                self.inner.as_mut().unwrap(),
-                self.metric.inner.as_ref().unwrap(),
-            );
-        }
-        self.runned = false;
     }
 
     /// Add a source node with an initial distance (normally 0). Multiple calls allow a multi-
@@ -382,22 +376,31 @@ impl<'a> CCHQuery<'a> {
 
     /// Execute the forward/backward upward/downward search to settle the shortest path between the
     /// added sources and targets. Must be called after at least one source and one target.
-    pub fn run(&mut self) {
+    /// Returns a [`CCHQueryResult`] holding a mutable reference to the query.
+    /// The query is automatically reset when the result is dropped.
+    pub fn run<'b>(&'b mut self) -> CCHQueryResult<'b, 'a> {
         unsafe {
             cch_query_run(self.inner.as_mut().unwrap());
         }
-        self.runned = true;
+        CCHQueryResult { query: self }
     }
+}
 
-    /// Return the shortest path distance after [`CCHQuery::run`].
-    ///
-    /// Returns `None` if no target is reachable (internally distance equals `i32::MAX`).
-    ///
-    /// Panics: if called before `run()`.
+/// The result of a single execution of a [`CCHQuery`].
+/// Holds a mutable reference to the query to ensure it is not reset or reused
+/// while the result is still alive. So you need to drop the result before reusing the query.
+/// When the result is dropped, the query is automatically reset.
+pub struct CCHQueryResult<'b, 'a> {
+    query: &'b mut CCHQuery<'a>,
+}
+
+impl<'b, 'a> CCHQueryResult<'b, 'a> {
+    /// Return the shortest path distance result of [`CCHQuery::run`].
+    /// Returns `None` if no target is reachable.
     pub fn distance(&self) -> Option<u32> {
-        assert!(self.runned, "Query distance requested before run()");
-        let res = unsafe { cch_query_distance(self.inner.as_ref().unwrap()) };
+        let res = unsafe { cch_query_distance(self.query.inner.as_ref().unwrap()) };
         if res == (i32::MAX as u32) {
+            // internally distance equals `i32::MAX` means unreachable
             None
         } else {
             Some(res)
@@ -405,25 +408,26 @@ impl<'a> CCHQuery<'a> {
     }
 
     /// Reconstruct and return the node id sequence of the current best path.
-    ///
     /// Returns empty vec if no target is reachable.
-    ///
-    /// Panics: if called before `run()`. Returns an empty vector only if source==target and the
-    /// implementation chooses to represent a trivial path that way (normally length>=1).
     pub fn node_path(&self) -> Vec<u32> {
-        assert!(self.runned, "Query node_path requested before run()");
-        unsafe { cch_query_node_path(self.inner.as_ref().unwrap()) }
+        unsafe { cch_query_node_path(self.query.inner.as_ref().unwrap()) }
     }
 
-    /// Reconstruct and return the original arc ids along the shortest path (after unpacking
-    /// shortcuts). Useful if you need per-arc attributes (speed limits, geometry). Order matches
-    /// the traversal direction from a chosen source to target.
-    ///
+    /// Reconstruct and return the original arc ids along the shortest path.
     /// Returns empty vec if no target is reachable.
-    ///
-    /// Panics: if called before `run()`.
     pub fn arc_path(&self) -> Vec<u32> {
-        assert!(self.runned, "Query arc_path requested before run()");
-        unsafe { cch_query_arc_path(self.inner.as_ref().unwrap()) }
+        unsafe { cch_query_arc_path(self.query.inner.as_ref().unwrap()) }
+    }
+}
+
+impl<'b, 'a> Drop for CCHQueryResult<'b, 'a> {
+    /// reset the query
+    fn drop(&mut self) {
+        unsafe {
+            cch_query_reset(
+                self.query.inner.as_mut().unwrap(),
+                self.query.metric.inner.as_ref().unwrap(),
+            );
+        }
     }
 }
