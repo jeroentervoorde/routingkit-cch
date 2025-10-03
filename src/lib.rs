@@ -293,7 +293,6 @@ impl<'a> CCHMetric<'a> {
 pub struct CCHMetricPartialUpdater<'a> {
     partial: UniquePtr<ffi::CCHPartial>,
     cch: &'a CCH,
-    _marker: std::marker::PhantomData<std::cell::Cell<()>>, // Not Sync
 }
 
 impl<'a> CCHMetricPartialUpdater<'a> {
@@ -301,11 +300,7 @@ impl<'a> CCHMetricPartialUpdater<'a> {
     /// metric built from the same CCH (even if you rebuild metrics with different weight sets).
     pub fn new(cch: &'a CCH) -> Self {
         let partial = unsafe { cch_partial_new(cch.inner.as_ref().unwrap()) };
-        CCHMetricPartialUpdater {
-            partial,
-            cch,
-            _marker: std::marker::PhantomData,
-        }
+        CCHMetricPartialUpdater { partial, cch }
     }
 
     /// Apply a batch of (arc, new_weight) updates to the given metric and run partial customize.
@@ -339,7 +334,6 @@ impl<'a> CCHMetricPartialUpdater<'a> {
 pub struct CCHQuery<'a> {
     inner: UniquePtr<ffi::CCHQuery>,
     metric: &'a CCHMetric<'a>,
-    _marker: std::marker::PhantomData<std::cell::Cell<()>>, // Not Sync
 }
 
 impl<'a> CCHQuery<'a> {
@@ -349,12 +343,8 @@ impl<'a> CCHQuery<'a> {
     /// many (s, t) pairs or multi-source / multi-target batches. You may have multiple query
     /// objects referencing the same metric concurrently (read-only access to metric data).
     pub fn new(metric: &'a CCHMetric<'a>) -> Self {
-        let query = unsafe { cch_query_new(&metric.inner) };
-        CCHQuery {
-            inner: query,
-            metric: metric,
-            _marker: std::marker::PhantomData,
-        }
+        let inner = unsafe { cch_query_new(&metric.inner) };
+        CCHQuery { inner, metric }
     }
 
     /// Add a source node with an initial distance (normally 0). Multiple calls allow a multi-
