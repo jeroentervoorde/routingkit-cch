@@ -37,10 +37,17 @@ pub mod ffi {
         /// Parallel customization; thread_count==0 picks an internal default (#procs if OpenMP, else 1).
         unsafe fn cch_metric_parallel_customize(metric: Pin<&mut CCHMetric>, thread_count: u32);
 
-        // Partial customization API
+        /// Allocate a new reusable partial customization helper bound to a CCH.
         unsafe fn cch_partial_new(cch: &CCH) -> UniquePtr<CCHPartial>;
+
+        /// Reset the partial updater to empty state (no updated arcs).
         unsafe fn cch_partial_reset(partial: Pin<&mut CCHPartial>);
+
+        /// Mark an arc as updated (weight changed) for the next partial customize call.
+        /// The actual weight change must already happened in the metric's weight vector.
         unsafe fn cch_partial_update_arc(partial: Pin<&mut CCHPartial>, arc: u32);
+
+        /// Run partial customization to update shortcut weights affected by the marked arcs.
         unsafe fn cch_partial_customize(partial: Pin<&mut CCHPartial>, metric: Pin<&mut CCHMetric>);
 
         /// Allocate a new reusable query object bound to a metric.
