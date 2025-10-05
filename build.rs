@@ -146,6 +146,12 @@ fn main() {
         build.define("ROUTING_KIT_NO_GCC_EXTENSIONS", None);
     }
 
+    if let Ok(target_triple) = env::var("TARGET") {
+        if target_triple.contains("apple-darwin") {
+            build.define("ROUTING_KIT_NO_ALIGNED_ALLOC", None);
+        }
+    }
+
     // 4. Flags & optimizations
     // Language / optimization
     build
