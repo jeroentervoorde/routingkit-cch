@@ -8,13 +8,12 @@
 #include <functional>
 
 using namespace RoutingKit;
-using namespace rk_wrap;
 
-std::unique_ptr<CCH> rk_wrap::cch_new(rust::Slice<const uint32_t> order,
-                                      rust::Slice<const uint32_t> tail,
-                                      rust::Slice<const uint32_t> head,
-                                      rust::Fn<void(rust::Str)> log_message,
-                                      bool filter_always_inf_arcs)
+std::unique_ptr<CCH> cch_new(rust::Slice<const uint32_t> order,
+                             rust::Slice<const uint32_t> tail,
+                             rust::Slice<const uint32_t> head,
+                             rust::Fn<void(rust::Str)> log_message,
+                             bool filter_always_inf_arcs)
 {
     // copy from rust::Slice to std::vector
     auto to_vec = [](rust::Slice<const uint32_t> s)
@@ -35,19 +34,19 @@ std::unique_ptr<CCH> rk_wrap::cch_new(rust::Slice<const uint32_t> order,
     return std::unique_ptr<CCH>(new CCH(std::move(cch)));
 }
 
-std::unique_ptr<CCHMetric> rk_wrap::cch_metric_new(const CCH &cch, rust::Slice<const uint32_t> weight)
+std::unique_ptr<CCHMetric> cch_metric_new(const CCH &cch, rust::Slice<const uint32_t> weight)
 {
     // Zero-copy: directly use pointer into Rust slice.
     CustomizableContractionHierarchyMetric metric(cch.inner, reinterpret_cast<const unsigned *>(weight.data()));
     return std::unique_ptr<CCHMetric>(new CCHMetric(std::move(metric)));
 }
 
-void rk_wrap::cch_metric_customize(CCHMetric &metric)
+void cch_metric_customize(CCHMetric &metric)
 {
     metric.inner.customize();
 }
 
-void rk_wrap::cch_metric_parallel_customize(CCHMetric &metric, uint32_t thread_count)
+void cch_metric_parallel_customize(CCHMetric &metric, uint32_t thread_count)
 {
     RoutingKit::CustomizableContractionHierarchyParallelization par(*metric.inner.cch);
     if (thread_count == 0)
@@ -60,39 +59,39 @@ void rk_wrap::cch_metric_parallel_customize(CCHMetric &metric, uint32_t thread_c
     }
 }
 
-std::unique_ptr<CCHQuery> rk_wrap::cch_query_new(const CCHMetric &metric)
+std::unique_ptr<CCHQuery> cch_query_new(const CCHMetric &metric)
 {
     CustomizableContractionHierarchyQuery q(metric.inner);
     return std::unique_ptr<CCHQuery>(new CCHQuery(std::move(q)));
 }
 
-void rk_wrap::cch_query_reset(CCHQuery &query, const CCHMetric &metric)
+void cch_query_reset(CCHQuery &query, const CCHMetric &metric)
 {
     query.inner.reset(metric.inner);
 }
 
-void rk_wrap::cch_query_add_source(CCHQuery &query, uint32_t s, uint32_t dist)
+void cch_query_add_source(CCHQuery &query, uint32_t s, uint32_t dist)
 {
     query.inner.add_source(s, dist);
 }
 
-void rk_wrap::cch_query_add_target(CCHQuery &query, uint32_t t, uint32_t dist)
+void cch_query_add_target(CCHQuery &query, uint32_t t, uint32_t dist)
 {
     query.inner.add_target(t, dist);
 }
 
-void rk_wrap::cch_query_run(CCHQuery &query)
+void cch_query_run(CCHQuery &query)
 {
     query.inner.run();
 }
 
-uint32_t rk_wrap::cch_query_distance(const CCHQuery &query)
+uint32_t cch_query_distance(const CCHQuery &query)
 {
     auto &mut_query = const_cast<RoutingKit::CustomizableContractionHierarchyQuery &>(query.inner);
     return mut_query.get_distance();
 }
 
-rust::Vec<uint32_t> rk_wrap::cch_query_node_path(const CCHQuery &query)
+rust::Vec<uint32_t> cch_query_node_path(const CCHQuery &query)
 {
     auto &mut_query = const_cast<RoutingKit::CustomizableContractionHierarchyQuery &>(query.inner);
     auto path = mut_query.get_node_path();
@@ -103,7 +102,7 @@ rust::Vec<uint32_t> rk_wrap::cch_query_node_path(const CCHQuery &query)
     return out;
 }
 
-rust::Vec<uint32_t> rk_wrap::cch_query_arc_path(const CCHQuery &query)
+rust::Vec<uint32_t> cch_query_arc_path(const CCHQuery &query)
 {
     auto &mut_query = const_cast<RoutingKit::CustomizableContractionHierarchyQuery &>(query.inner);
     auto path = mut_query.get_arc_path();
@@ -114,7 +113,7 @@ rust::Vec<uint32_t> rk_wrap::cch_query_arc_path(const CCHQuery &query)
     return out;
 }
 
-rust::Vec<uint32_t> rk_wrap::cch_compute_order_inertial(
+rust::Vec<uint32_t> cch_compute_order_inertial(
     uint32_t node_count,
     rust::Slice<const uint32_t> tail,
     rust::Slice<const uint32_t> head,
@@ -151,7 +150,7 @@ rust::Vec<uint32_t> rk_wrap::cch_compute_order_inertial(
     return out;
 }
 
-rust::Vec<uint32_t> rk_wrap::cch_compute_order_degree(
+rust::Vec<uint32_t> cch_compute_order_degree(
     uint32_t node_count,
     rust::Slice<const uint32_t> tail,
     rust::Slice<const uint32_t> head)
@@ -181,61 +180,22 @@ rust::Vec<uint32_t> rk_wrap::cch_compute_order_degree(
 }
 
 // -------- Partial customization wrappers --------
-std::unique_ptr<CCHPartial> rk_wrap::cch_partial_new(const CCH &cch)
+std::unique_ptr<CCHPartial> cch_partial_new(const CCH &cch)
 {
     return std::unique_ptr<CCHPartial>(new CCHPartial(cch.inner));
 }
 
-void rk_wrap::cch_partial_reset(CCHPartial &partial)
+void cch_partial_reset(CCHPartial &partial)
 {
     partial.inner.reset();
 }
 
-void rk_wrap::cch_partial_update_arc(CCHPartial &partial, uint32_t arc)
+void cch_partial_update_arc(CCHPartial &partial, uint32_t arc)
 {
     partial.inner.update_arc(arc);
 }
 
-void rk_wrap::cch_partial_customize(CCHPartial &partial, CCHMetric &metric)
+void cch_partial_customize(CCHPartial &partial, CCHMetric &metric)
 {
     partial.inner.customize(metric.inner);
 }
-
-// Expose C functions for cxx (forwarders)
-std::unique_ptr<CCH> cch_new(rust::Slice<const uint32_t> order,
-                             rust::Slice<const uint32_t> tail,
-                             rust::Slice<const uint32_t> head,
-                             rust::Fn<void(rust::Str)> log_message,
-                             bool filter_always_inf_arcs)
-{
-    return rk_wrap::cch_new(order, tail, head, log_message, filter_always_inf_arcs);
-}
-std::unique_ptr<CCHMetric> cch_metric_new(const CCH &cch, rust::Slice<const uint32_t> weight)
-{
-    return rk_wrap::cch_metric_new(cch, weight);
-}
-void cch_metric_customize(CCHMetric &metric) { rk_wrap::cch_metric_customize(metric); }
-void cch_metric_parallel_customize(CCHMetric &metric, uint32_t thread_count) { rk_wrap::cch_metric_parallel_customize(metric, thread_count); }
-std::unique_ptr<CCHQuery> cch_query_new(const CCHMetric &metric) { return rk_wrap::cch_query_new(metric); }
-void cch_query_reset(CCHQuery &query, const CCHMetric &metric) { rk_wrap::cch_query_reset(query, metric); }
-void cch_query_add_source(CCHQuery &query, uint32_t s, uint32_t dist) { rk_wrap::cch_query_add_source(query, s, dist); }
-void cch_query_add_target(CCHQuery &query, uint32_t t, uint32_t dist) { rk_wrap::cch_query_add_target(query, t, dist); }
-void cch_query_run(CCHQuery &query) { rk_wrap::cch_query_run(query); }
-uint32_t cch_query_distance(const CCHQuery &query) { return rk_wrap::cch_query_distance(query); }
-rust::Vec<uint32_t> cch_query_node_path(const CCHQuery &query) { return rk_wrap::cch_query_node_path(query); }
-rust::Vec<uint32_t> cch_query_arc_path(const CCHQuery &query) { return rk_wrap::cch_query_arc_path(query); }
-rust::Vec<uint32_t> cch_compute_order_inertial(
-    uint32_t node_count,
-    rust::Slice<const uint32_t> tail,
-    rust::Slice<const uint32_t> head,
-    rust::Slice<const float> latitude,
-    rust::Slice<const float> longitude) { return rk_wrap::cch_compute_order_inertial(node_count, tail, head, latitude, longitude); }
-rust::Vec<uint32_t> cch_compute_order_degree(
-    uint32_t node_count,
-    rust::Slice<const uint32_t> tail,
-    rust::Slice<const uint32_t> head) { return rk_wrap::cch_compute_order_degree(node_count, tail, head); }
-
-std::unique_ptr<CCHPartial> cch_partial_new(const CCH &cch) { return rk_wrap::cch_partial_new(cch); }
-void cch_partial_reset(CCHPartial &partial) { rk_wrap::cch_partial_reset(partial); }
-void cch_partial_update_arc(CCHPartial &partial, uint32_t arc) { rk_wrap::cch_partial_update_arc(partial, arc); }
-void cch_partial_customize(CCHPartial &partial, CCHMetric &metric) { rk_wrap::cch_partial_customize(partial, metric); }
