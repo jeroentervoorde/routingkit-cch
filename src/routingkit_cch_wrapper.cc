@@ -16,10 +16,6 @@ std::unique_ptr<CCH> rk_wrap::cch_new(rust::Slice<const uint32_t> order,
                                       rust::Fn<void(rust::Str)> log_message,
                                       bool filter_always_inf_arcs)
 {
-    if (tail.size() != head.size())
-    {
-        throw std::invalid_argument("tail/head size mismatch");
-    }
     // copy from rust::Slice to std::vector
     auto to_vec = [](rust::Slice<const uint32_t> s)
     {
@@ -41,10 +37,6 @@ std::unique_ptr<CCH> rk_wrap::cch_new(rust::Slice<const uint32_t> order,
 
 std::unique_ptr<CCHMetric> rk_wrap::cch_metric_new(const CCH &cch, rust::Slice<const uint32_t> weight)
 {
-    if (weight.size() != cch.inner.input_arc_count())
-    {
-        throw std::invalid_argument("weight size mismatch with input_arc_count");
-    }
     // Zero-copy: directly use pointer into Rust slice.
     CustomizableContractionHierarchyMetric metric(cch.inner, reinterpret_cast<const unsigned *>(weight.data()));
     return std::unique_ptr<CCHMetric>(new CCHMetric(std::move(metric)));
@@ -129,14 +121,6 @@ rust::Vec<uint32_t> rk_wrap::cch_compute_order_inertial(
     rust::Slice<const float> latitude,
     rust::Slice<const float> longitude)
 {
-    if (latitude.size() != node_count || longitude.size() != node_count)
-    {
-        throw std::invalid_argument("latitude/longitude size mismatch with node_count");
-    }
-    if (tail.size() != head.size())
-    {
-        throw std::invalid_argument("tail/head size mismatch");
-    }
     auto to_uvec = [](rust::Slice<const uint32_t> s)
     {
         std::vector<unsigned> v;
@@ -172,10 +156,6 @@ rust::Vec<uint32_t> rk_wrap::cch_compute_order_degree(
     rust::Slice<const uint32_t> tail,
     rust::Slice<const uint32_t> head)
 {
-    if (tail.size() != head.size())
-    {
-        throw std::invalid_argument("tail/head size mismatch");
-    }
     std::vector<uint32_t> deg(node_count, 0);
     for (size_t i = 0; i < tail.size(); ++i)
     {
