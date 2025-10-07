@@ -12,7 +12,7 @@ fn weight_pointer_stability() {
     let head = vec![1, 2, 2];
     let weights = vec![1u32, 2u32, 10u32];
     let order = compute_order_degree(3, &tail, &head);
-    let cch = CCH::new(&order, &tail, &head, false);
+    let cch = CCH::new(&order, &tail, &head, |_| {}, false);
 
     let metric_a = CCHMetric::new(&cch, weights.clone());
     // Move construct metric_b by assigning metric_a (metric_a moved)
@@ -104,7 +104,7 @@ fn weight_pointer_stability_large() {
     }
 
     let order = compute_order_degree(node_count, &tail, &head);
-    let cch = CCH::new(&order, &tail, &head, false);
+    let cch = CCH::new(&order, &tail, &head, |_| {}, false);
 
     // Build initial metric
     let metric = CCHMetric::new(&cch, base_weights.clone());

@@ -22,6 +22,7 @@ pub mod ffi {
             order: &[u32],
             tail: &[u32],
             head: &[u32],
+            log_message: fn(&str),
             filter_always_inf_arcs: bool,
         ) -> UniquePtr<CCH>;
 
@@ -195,6 +196,8 @@ impl CCH {
     ///   nested dissection heuristic (e.g. [`compute_order_inertial`]) or a lightweight fallback.
     /// * `tail`, `head` – parallel arrays encoding each directed arc `i` as `(tail[i], head[i])`.
     ///   The ordering routine treats them as undirected; here they stay directed for queries.
+    /// * `log_message` – callback for logging progress messages during construction.
+    ///   May be `|_| {}` if you do not want any messages.
     /// * `filter_always_inf_arcs` – if `true`, arcs whose weight will always be interpreted as
     ///   an application defined 'infinity' placeholder may be removed during construction to
     ///   reduce index size. (Typically keep `false` unless you prepared such a list.)
@@ -207,7 +210,13 @@ impl CCH {
     ///
     /// Panics if `order` is not a valid permutation of node ids,
     /// or if `tail`/`head` have inconsistent lengths or contain invalid node ids.
-    pub fn new(order: &[u32], tail: &[u32], head: &[u32], filter_always_inf_arcs: bool) -> Self {
+    pub fn new(
+        order: &[u32],
+        tail: &[u32],
+        head: &[u32],
+        log_message: fn(&str),
+        filter_always_inf_arcs: bool,
+    ) -> Self {
         debug_assert!(
             is_permutation(order),
             "order array is not a valid permutation"
@@ -223,7 +232,7 @@ impl CCH {
             tail.len() == head.len(),
             "tail and head arrays must have the same length"
         );
-        let cch = unsafe { cch_new(order, tail, head, filter_always_inf_arcs) };
+        let cch = unsafe { cch_new(order, tail, head, log_message, filter_always_inf_arcs) };
         CCH {
             inner: cch,
             edge_count: tail.len(),

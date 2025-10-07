@@ -56,7 +56,7 @@ let node_count = 4u32;
 
 // 1) Compute a (cheap) order; for real data prefer compute_order_inertial (requires lat,lon).
 let order = compute_order_degree(node_count, &tail, &head);
-let cch = CCH::new(&order, &tail, &head, false);
+let cch = CCH::new(&order, &tail, &head, |_| {}, false);
 
 // 2) Bind weights & customize (done inside CCHMetric::new here).
 let metric = CCHMetric::new(&cch, weights.clone());

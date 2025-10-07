@@ -13,6 +13,7 @@ using namespace rk_wrap;
 std::unique_ptr<CCH> rk_wrap::cch_new(rust::Slice<const uint32_t> order,
                                       rust::Slice<const uint32_t> tail,
                                       rust::Slice<const uint32_t> head,
+                                      rust::Fn<void(rust::Str)> log_message,
                                       bool filter_always_inf_arcs)
 {
     if (tail.size() != head.size())
@@ -32,7 +33,8 @@ std::unique_ptr<CCH> rk_wrap::cch_new(rust::Slice<const uint32_t> order,
         to_vec(order),
         to_vec(tail),
         to_vec(head),
-        [](const std::string &) {},
+        [log_message](const std::string &msg)
+        { log_message(msg); },
         filter_always_inf_arcs);
     return std::unique_ptr<CCH>(new CCH(std::move(cch)));
 }
@@ -223,9 +225,10 @@ void rk_wrap::cch_partial_customize(CCHPartial &partial, CCHMetric &metric)
 std::unique_ptr<CCH> cch_new(rust::Slice<const uint32_t> order,
                              rust::Slice<const uint32_t> tail,
                              rust::Slice<const uint32_t> head,
+                             rust::Fn<void(rust::Str)> log_message,
                              bool filter_always_inf_arcs)
 {
-    return rk_wrap::cch_new(order, tail, head, filter_always_inf_arcs);
+    return rk_wrap::cch_new(order, tail, head, log_message, filter_always_inf_arcs);
 }
 std::unique_ptr<CCHMetric> cch_metric_new(const CCH &cch, rust::Slice<const uint32_t> weight)
 {

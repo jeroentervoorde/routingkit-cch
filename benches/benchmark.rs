@@ -40,7 +40,7 @@ fn bench_pathfinding(c: &mut Criterion) {
         let order = compute_order_inertial(node_count as u32, &tail, &head, &lat, &lon);
 
         eprintln!("Building CCH...");
-        let cch = CCH::new(&order, &tail, &head, false);
+        let cch = CCH::new(&order, &tail, &head, |_| {}, false);
         eprintln!("Building metric + customization...");
         let metric = CCHMetric::parallel_new(&cch, weights.clone(), 0);
         let mut query = CCHQuery::new(&metric);

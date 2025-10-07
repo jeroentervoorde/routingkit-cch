@@ -41,6 +41,7 @@ namespace rk_wrap
     std::unique_ptr<CCH> cch_new(rust::Slice<const uint32_t> order,
                                  rust::Slice<const uint32_t> tail,
                                  rust::Slice<const uint32_t> head,
+                                 rust::Fn<void(rust::Str)> log_message,
                                  bool filter_always_inf_arcs);
 
     // Borrow weights (zero-copy). The caller must keep the memory alive while the metric lives.
@@ -90,6 +91,7 @@ using rk_wrap::CCHQuery;
 std::unique_ptr<CCH> cch_new(rust::Slice<const uint32_t> order,
                              rust::Slice<const uint32_t> tail,
                              rust::Slice<const uint32_t> head,
+                             rust::Fn<void(rust::Str)> log_message,
                              bool filter_always_inf_arcs);
 std::unique_ptr<CCHMetric> cch_metric_new(const CCH &cch, rust::Slice<const uint32_t> weight);
 void cch_metric_customize(CCHMetric &metric);

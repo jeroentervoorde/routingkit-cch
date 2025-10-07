@@ -61,7 +61,13 @@ fn compare_with_pathfinding() {
         let order = compute_order_inertial(node_count as u32, &tail, &head, &lat, &lon);
 
         eprintln!("Building CCH...");
-        let cch = CCH::new(&order, &tail, &head, false);
+        let cch = CCH::new(
+            &order,
+            &tail,
+            &head,
+            |msg| eprintln!("[CCH log message] {msg}"),
+            false,
+        );
         eprintln!("Building metric + customization...");
         let metric = CCHMetric::parallel_new(&cch, weights.clone(), 0);
 
@@ -174,7 +180,7 @@ fn random_graph_compare_parallel_partial() {
 
     // Order (degree-based since we have no coords here)
     let order = compute_order_degree(node_count, &tail, &head);
-    let cch = CCH::new(&order, &tail, &head, false);
+    let cch = CCH::new(&order, &tail, &head, |_| {}, false);
     eprint!("Building metric + customization...");
     let mut metric = CCHMetric::parallel_new(&cch, weights, 0);
     eprintln!(" done.");
@@ -293,7 +299,7 @@ fn partial_update_with_reusable_updater() {
     let head = vec![1, 2, 2];
     let weights = vec![5u32, 7u32, 20u32];
     let order = compute_order_degree(3, &tail, &head);
-    let cch = CCH::new(&order, &tail, &head, false);
+    let cch = CCH::new(&order, &tail, &head, |_| {}, false);
     let mut metric = CCHMetric::new(&cch, weights);
     // Build reusable updater (now constructed from &CCH)
     let mut updater = CCHMetricPartialUpdater::new(&cch);
