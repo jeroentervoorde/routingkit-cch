@@ -32,6 +32,3 @@ criterion = "0.7"
 [[bench]]
 name = "benchmark"
 harness = false
-
-[features]
-default = ["pyo3"]
