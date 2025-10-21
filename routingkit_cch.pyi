@@ -1,5 +1,3 @@
-from typing import Self, Optional
-
 class CCH:
     def __init__(
         self,
@@ -7,31 +5,32 @@ class CCH:
         tail: list[int],
         head: list[int],
         filter_always_inf_arcs: bool,
-    ) -> Self: ...
+    ) -> None: ...
 
 class CCHMetric:
     def __init__(
         self,
         cch: CCH,
         weights: list[int],
-    ) -> Self:
+    ) -> None:
         self.weights: list[int]
 
 class CCHMetricPartialUpdater:
-    def __init__(self, cch: CCH) -> Self: ...
+    def __init__(self, cch: CCH) -> None: ...
     def apply(self, metric: CCHMetric, updates: dict[int, int]) -> None: ...
 
 class CCHQueryResult:
-    distance: Optional[int]
+    distance: int | None
     node_path: list[int]
     arc_path: list[int]
 
 class CCHQuery:
-    def __init__(self, metric: CCHMetric) -> Self: ...
+    def __init__(self, metric: CCHMetric) -> None: ...
     def run(self, source: int, target: int) -> CCHQueryResult: ...
     def run_multi_st_with_dist(
         self, sources: list[tuple[int, int]], targets: list[tuple[int, int]]
-    ) -> CCHQueryResult: ...
+    ) -> CCHQueryResult:
+        """run query with multiple sources and targets and distances."""
 
 def compute_order_degree(
     node_count: int, tail: list[int], head: list[int]
