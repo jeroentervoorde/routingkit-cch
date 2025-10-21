@@ -69,7 +69,7 @@ fn compare_with_pathfinding() {
             false,
         );
         eprintln!("Building metric + customization...");
-        let metric = CCHMetric::parallel_new(&cch, weights.clone(), 0);
+        let metric = CCHMetric::new(&cch, weights.clone());
 
         // Build adjacency for reference dijkstra using pathfinding crate
         eprintln!("Building adjacency for pathfinding reference...");
@@ -182,7 +182,7 @@ fn random_graph_compare_parallel_partial() {
     let order = compute_order_degree(node_count, &tail, &head);
     let cch = CCH::new(&order, &tail, &head, |_| {}, false);
     eprint!("Building metric + customization...");
-    let mut metric = CCHMetric::parallel_new(&cch, weights, 0);
+    let mut metric = CCHMetric::new(&cch, weights);
     eprintln!(" done.");
     let mut updater = CCHMetricPartialUpdater::new(&cch);
 

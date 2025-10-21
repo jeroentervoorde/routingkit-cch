@@ -42,7 +42,7 @@ fn bench_pathfinding(c: &mut Criterion) {
         eprintln!("Building CCH...");
         let cch = CCH::new(&order, &tail, &head, |_| {}, false);
         eprintln!("Building metric + customization...");
-        let metric = CCHMetric::parallel_new(&cch, weights.clone(), 0);
+        let metric = CCHMetric::new(&cch, weights.clone());
         let mut query = CCHQuery::new(&metric);
 
         // Build adjacency for reference dijkstra using pathfinding crate

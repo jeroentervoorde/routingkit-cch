@@ -1,10 +1,11 @@
 # routingkit-cch
 
 [![Crates.io](https://img.shields.io/crates/v/routingkit-cch.svg)](https://crates.io/crates/routingkit-cch)
+[![Pypi](https://img.shields.io/pypi/v/routingkit-cch.svg)](https://pypi.org/project/routingkit-cch/)
 [![Docs](https://img.shields.io/docsrs/routingkit-cch)](https://docs.rs/routingkit-cch/)
 [![License](https://img.shields.io/crates/l/routingkit-cch)](https://github.com/RoutingKit/RoutingKit/blob/master/LICENSE)
 
-Rust bindings for the Customizable Contraction Hierarchies (CCH) implementation from [RoutingKit](https://github.com/RoutingKit/RoutingKit). CCH is a three‑phase shortest path acceleration technique for large directed graphs (e.g. road networks) that allows fast re-weighting while keeping very low query latency.
+Rust/Python bindings for the Customizable Contraction Hierarchies (CCH) implementation from [RoutingKit](https://github.com/RoutingKit/RoutingKit). CCH is a three‑phase shortest path acceleration technique for large directed graphs (e.g. road networks) that allows fast re-weighting while keeping very low query latency.
 
 ## Why CCH?
 CustomizableContractionHierarchies (CCH) are an index-based speedup technique for shortest paths in directed graphs that can quickly be adapted to new weights. CCHs use, contrary to regulars CHs, a three phase setup:
@@ -25,26 +26,43 @@ The preprocessing is slow but does not rely on the arc weights. The Customizatio
 - Thread-safe sharing of immutable structures (`CCH`, `CCHMetric`).
 
 ## Installation
-Stable release from [crates.io](https://crates.io/crates/routingkit-cch):
+
+---
+
+Rust stable release from [crates.io](https://crates.io/crates/routingkit-cch):
 ```toml
 [dependencies]
 routingkit-cch = "0.1"
 ```
-
 Or track the repository:
 ```toml
 [dependencies]
 routingkit-cch = { git = "https://github.com/HellOwhatAs/routingkit-cch" }
 ```
+
+---
+
+Python stable release from [pypi](https://pypi.org/project/routingkit-cch/):
+```bash
+pip install routingkit-cch
+```
+Or track the repository:
+```bash
+pip install git+https://github.com/HellOwhatAs/routingkit-cch
+```
+
+---
+
 For the git form ensure the `RoutingKit` submodule is present:
 ```bash
 git submodule update --init --recursive
 ```
-Requirements: C++17 compiler (MSVC / gcc / clang).  
+Requirements: C++17 compiler (MSVC / gcc / clang).
 OpenMP is enabled automatically by the build script; ensure your toolchain provides an OpenMP runtime (e.g. install libomp on macOS).
-Without it the build may fail when `CCHMetric::parallel_new` is called.  
+Without it the build may fail when `CCHMetric::parallel_new` is called.
 
 ## Quick Start
+> For a python example, see [`examples/draft.py`](examples/draft.py).
 ```rust
 use routingkit_cch::{CCH, CCHMetric, CCHQuery, compute_order_degree};
 
