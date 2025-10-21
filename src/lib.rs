@@ -343,6 +343,7 @@ impl<'a> CCHMetricPartialUpdater<'a> {
 pub struct CCHQuery<'a> {
     inner: UniquePtr<ffi::CCHQuery>,
     metric: &'a CCHMetric<'a>,
+    state: [bool; 2],
 }
 
 impl<'a> CCHQuery<'a> {
@@ -353,7 +354,11 @@ impl<'a> CCHQuery<'a> {
     /// objects referencing the same metric concurrently (read-only access to metric data).
     pub fn new(metric: &'a CCHMetric<'a>) -> Self {
         let inner = unsafe { cch_query_new(&metric.inner) };
-        CCHQuery { inner, metric }
+        CCHQuery {
+            inner,
+            metric,
+            state: [false; 2],
+        }
     }
 
     /// Add a source node with an initial distance (normally 0). Multiple calls allow a multi-
@@ -366,6 +371,7 @@ impl<'a> CCHQuery<'a> {
         unsafe {
             cch_query_add_source(self.inner.as_mut().unwrap(), s, dist);
         }
+        self.state[0] = true;
     }
 
     /// Add a target node with an initial distance (normally 0). Multiple calls allow multi-target
@@ -378,6 +384,7 @@ impl<'a> CCHQuery<'a> {
         unsafe {
             cch_query_add_target(self.inner.as_mut().unwrap(), t, dist);
         }
+        self.state[1] = true;
     }
 
     /// Execute the forward/backward upward/downward search to settle the shortest path between the
@@ -385,6 +392,10 @@ impl<'a> CCHQuery<'a> {
     /// Returns a [`CCHQueryResult`] holding a mutable reference to the query.
     /// The query is automatically reset when the result is dropped.
     pub fn run<'b>(&'b mut self) -> CCHQueryResult<'b, 'a> {
+        assert!(
+            self.state.iter().all(|&x| x),
+            "must add at least one source and one target before running the query"
+        );
         unsafe {
             cch_query_run(self.inner.as_mut().unwrap());
         }
@@ -435,5 +446,9 @@ impl<'b, 'a> Drop for CCHQueryResult<'b, 'a> {
                 self.query.metric.inner.as_ref().unwrap(),
             );
         }
+        self.query.state.iter_mut().for_each(|x| *x = false);
     }
 }
+
+#[cfg(feature = "pyo3")]
+mod python_binding;
