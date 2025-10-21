@@ -4,8 +4,14 @@ use crate::{
 };
 use pyo3::prelude::*;
 use std::collections::HashMap;
-use std::rc::Rc;
-use std::sync::Arc;
+
+unsafe fn extend_lifetime<'a, T>(r: &'a T) -> &'static T {
+    unsafe { std::mem::transmute::<&'a T, &'static T>(r) }
+}
+
+unsafe fn extend_lifetime_mut<'a, T>(r: &'a mut T) -> &'static mut T {
+    unsafe { std::mem::transmute::<&'a mut T, &'static mut T>(r) }
+}
 
 #[pyfunction]
 #[pyo3(name = "compute_order_degree")]
@@ -27,38 +33,37 @@ fn py_compute_order_inertial(
 
 #[pyclass(frozen)]
 #[pyo3(name = "CCH")]
-struct PyCCH(Arc<CCH>);
+struct PyCCH(CCH);
 
 #[pymethods]
 impl PyCCH {
     #[new]
     fn new(order: Vec<u32>, tail: Vec<u32>, head: Vec<u32>, filter_always_inf_arcs: bool) -> Self {
-        Self(Arc::new(CCH::new(
+        Self(CCH::new(
             &order,
             &tail,
             &head,
             |_| {},
             filter_always_inf_arcs,
-        )))
+        ))
     }
 }
 
 #[pyclass]
 #[pyo3(name = "CCHMetric")]
 struct PyCCHMetric {
-    inner: Arc<CCHMetric<'static>>, // should drop before cch
-    _cch: Arc<CCH>,
+    inner: CCHMetric<'static>, // should drop before cch
+    _cch: Py<PyCCH>,
 }
 
 #[pymethods]
 impl PyCCHMetric {
     #[new]
-    fn new(cch: &PyCCH, weights: Vec<u32>) -> Self {
-        let arc_cch = cch.0.clone();
-        let cch_static = unsafe { &*Arc::as_ptr(&arc_cch) };
+    fn new(py: Python, cch: Py<PyCCH>, weights: Vec<u32>) -> Self {
+        let cch_static = unsafe { extend_lifetime(&cch.borrow(py).0) };
         Self {
-            inner: Arc::new(CCHMetric::new(cch_static, weights)),
-            _cch: arc_cch,
+            inner: CCHMetric::new(cch_static, weights),
+            _cch: cch,
         }
     }
 
@@ -72,56 +77,50 @@ impl PyCCHMetric {
 #[pyo3(name = "CCHMetricPartialUpdater")]
 struct PyCCHMetricPartialUpdater {
     inner: CCHMetricPartialUpdater<'static>,
-    _cch: Arc<CCH>,
+    _cch: Py<PyCCH>,
 }
 
 #[pymethods]
 impl PyCCHMetricPartialUpdater {
     #[new]
-    fn new(cch: &PyCCH) -> Self {
-        let arc_cch = cch.0.clone();
-        let cch_static = unsafe { &*Arc::as_ptr(&arc_cch) };
+    fn new(py: Python, cch: Py<PyCCH>) -> Self {
+        let cch_static = unsafe { extend_lifetime(&cch.borrow(py).0) };
         Self {
             inner: CCHMetricPartialUpdater::new(cch_static),
-            _cch: arc_cch,
+            _cch: cch,
         }
     }
 
-    fn apply(&mut self, metric: &mut PyCCHMetric, updates: HashMap<u32, u32>) {
-        self.inner.apply(
-            Arc::get_mut(&mut metric.inner)
-                .expect("cannot update CCHMetric: multiple references exist"),
-            &updates,
-        );
+    fn apply(&mut self, py: Python, metric: Py<PyCCHMetric>, updates: HashMap<u32, u32>) {
+        let a = unsafe { extend_lifetime_mut(&mut metric.borrow_mut(py).inner) };
+        self.inner.apply(a, &updates);
     }
 }
 
 #[pyclass(unsendable)]
 #[pyo3(name = "CCHQuery")]
 struct PyCCHQuery {
-    inner: Rc<CCHQuery<'static>>,
-    _metric: Arc<CCHMetric<'static>>,
+    inner: CCHQuery<'static>,
+    _metric: Py<PyCCHMetric>,
 }
 
 #[pymethods]
 impl PyCCHQuery {
     #[new]
-    fn new(metric: &PyCCHMetric) -> Self {
-        let metric_static = unsafe { &*Arc::as_ptr(&metric.inner) };
+    fn new(py: Python, metric: Py<PyCCHMetric>) -> Self {
+        let a = unsafe { extend_lifetime(&metric.borrow(py).inner) };
         Self {
-            inner: Rc::new(CCHQuery::new(metric_static)),
-            _metric: metric.inner.clone(),
+            inner: CCHQuery::new(a),
+            _metric: metric,
         }
     }
 
-    fn run(&mut self, py: Python, source: u32, target: u32) -> PyCCHQueryResult {
-        let mut_q_static = unsafe {
-            assert!(
-                Rc::weak_count(&self.inner) == 0 && Rc::strong_count(&self.inner) == 1,
-                "cannot run CCHQuery: multiple references exist"
-            );
-            &mut *(Rc::as_ptr(&self.inner) as *mut CCHQuery<'static>)
-        };
+    fn run(self_: Py<Self>, py: Python, source: u32, target: u32) -> PyCCHQueryResult {
+        let mut_q_static = unsafe { extend_lifetime_mut(&mut self_.borrow_mut(py).inner) };
+        assert!(
+            mut_q_static.state.iter().all(|x| !x),
+            "drop the CCHQueryResult before running a new one"
+        );
         let result = py.detach(|| {
             mut_q_static.add_source(source, 0);
             mut_q_static.add_target(target, 0);
@@ -129,23 +128,21 @@ impl PyCCHQuery {
         });
         PyCCHQueryResult {
             inner: result,
-            _query: self.inner.clone(),
+            _query: self_,
         }
     }
 
     fn run_multi_st_with_dist(
-        &mut self,
+        self_: Py<Self>,
         py: Python,
         sources: Vec<(u32, u32)>,
         target: Vec<(u32, u32)>,
     ) -> PyCCHQueryResult {
-        let mut_q_static = unsafe {
-            assert!(
-                Rc::weak_count(&self.inner) == 0 && Rc::strong_count(&self.inner) == 1,
-                "cannot run CCHQuery: multiple references exist"
-            );
-            &mut *(Rc::as_ptr(&self.inner) as *mut CCHQuery<'static>)
-        };
+        let mut_q_static = unsafe { extend_lifetime_mut(&mut self_.borrow_mut(py).inner) };
+        assert!(
+            mut_q_static.state.iter().all(|x| !x),
+            "drop current CCHQueryResult before running a new one"
+        );
         let result = py.detach(|| {
             for (s, d) in sources {
                 mut_q_static.add_source(s, d);
@@ -157,7 +154,7 @@ impl PyCCHQuery {
         });
         PyCCHQueryResult {
             inner: result,
-            _query: self.inner.clone(),
+            _query: self_,
         }
     }
 }
@@ -166,7 +163,7 @@ impl PyCCHQuery {
 #[pyo3(name = "CCHQueryResult")]
 struct PyCCHQueryResult {
     inner: CCHQueryResult<'static, 'static>,
-    _query: Rc<CCHQuery<'static>>,
+    _query: Py<PyCCHQuery>,
 }
 
 #[pymethods]
