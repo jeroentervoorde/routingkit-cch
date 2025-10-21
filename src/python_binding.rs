@@ -54,6 +54,7 @@ impl PyCCH {
 struct PyCCHMetric {
     inner: CCHMetric<'static>, // should drop before cch
     _cch: Py<PyCCH>,
+    query_count: usize,
 }
 
 #[pymethods]
@@ -64,6 +65,7 @@ impl PyCCHMetric {
         Self {
             inner: CCHMetric::new(cch_static, weights),
             _cch: cch,
+            query_count: 0,
         }
     }
 
@@ -92,6 +94,10 @@ impl PyCCHMetricPartialUpdater {
     }
 
     fn apply(&mut self, py: Python, metric: Py<PyCCHMetric>, updates: HashMap<u32, u32>) {
+        assert!(
+            metric.borrow_mut(py).query_count == 0,
+            "cannot apply updates while there are active CCHQuerys using the metric"
+        );
         let a = unsafe { extend_lifetime_mut(&mut metric.borrow_mut(py).inner) };
         self.inner.apply(a, &updates);
     }
@@ -108,6 +114,7 @@ struct PyCCHQuery {
 impl PyCCHQuery {
     #[new]
     fn new(py: Python, metric: Py<PyCCHMetric>) -> Self {
+        metric.borrow_mut(py).query_count += 1;
         let a = unsafe { extend_lifetime(&metric.borrow(py).inner) };
         Self {
             inner: CCHQuery::new(a),
@@ -156,6 +163,12 @@ impl PyCCHQuery {
             inner: result,
             _query: self_,
         }
+    }
+}
+
+impl Drop for PyCCHQuery {
+    fn drop(&mut self) {
+        Python::attach(|py| self._metric.borrow_mut(py).query_count -= 1);
     }
 }
 
