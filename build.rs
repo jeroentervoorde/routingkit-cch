@@ -185,8 +185,12 @@ fn main() {
     // 5. OpenMP (mandatory parallel)
     let target = env::var("TARGET").unwrap_or_default();
     let compiler = build.get_compiler();
-    let omp = detect_openmp(&target, compiler.is_like_msvc(), compiler.is_like_clang());
-    emit_openmp(&omp, &mut build);
+    if std::env::var("CARGO_FEATURE_OPENMP").is_ok() {
+        emit_openmp(
+            &detect_openmp(&target, compiler.is_like_msvc(), compiler.is_like_clang()),
+            &mut build,
+        );
+    }
 
     // 6. pthread (POSIX)
     build.flag_if_supported("-pthread");

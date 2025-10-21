@@ -273,6 +273,7 @@ impl<'a> CCHMetric<'a> {
     }
 
     /// Parallel customization variant.
+    #[cfg(feature = "openmp")]
     pub fn parallel_new(cch: &'a CCH, weights: Vec<u32>, thread_count: u32) -> Self {
         assert!(
             weights.len() == cch.edge_count,
