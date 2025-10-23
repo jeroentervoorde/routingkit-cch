@@ -5,6 +5,7 @@ from tqdm import tqdm
 import more_itertools
 from concurrent.futures import ThreadPoolExecutor
 import os
+import time
 import pickle
 
 
@@ -55,6 +56,7 @@ def sequential(path: str = "data/beijing_data"):
     metric = rk.CCHMetric(cch, data.weights)
     q = rk.CCHQuery(metric)
 
+    start = time.time()
     pbar = tqdm(total=len(data.trips))
     for trip in data.trips:
         pbar.update(1)
@@ -67,6 +69,7 @@ def sequential(path: str = "data/beijing_data"):
         assert sum(data.weights[i] for i in res.arc_path) == res.distance
         assert sum(data.weights[i] for i in trip) >= res.distance
         del res
+    return time.time() - start
 
 
 def parallel(path: str = "data/beijing_data", max_workers: int = 2):
@@ -97,26 +100,21 @@ def parallel(path: str = "data/beijing_data", max_workers: int = 2):
             assert sum(data.weights[i] for i in trip) >= res.distance
             del res
 
+    start = time.time()
     futures = [
         executor.submit(worker, list(chunk))
         for chunk in more_itertools.chunked(
             data.trips, len(data.trips) // max_workers + 1
         )
     ]
-
     for future in futures:
         future.result()
+    return time.time() - start
 
 
 if __name__ == "__main__":
-    import time
-
-    start = time.time()
-    sequential()
-    end = time.time()
-    print(f"Sequential took {end - start} seconds")
-
-    start = time.time()
-    parallel()
-    end = time.time()
-    print(f"Parallel took {end - start} seconds")
+    for city in os.listdir("data"):
+        print(f"Processing city: {city}")
+        path = os.path.join("data", city)
+        print(f"Sequential took {sequential(path)} seconds")
+        print(f"Parallel took {parallel(path)} seconds")
