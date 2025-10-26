@@ -1,11 +1,12 @@
+mod shp_utils;
+
 use indicatif::{MultiProgress, ProgressBar, ProgressIterator};
 use pathfinding::prelude::dijkstra;
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
 use routingkit_cch::{
-    CCH, CCHMetric, CCHMetricPartialUpdater, CCHQuery, compute_order_degree,
-    compute_order_inertial, shp_utils,
+    CCH, CCHMetric, CCHMetricPartialUpdater, CCHQuery, compute_order_degree, compute_order_inertial,
 };
 use std::{
     collections::{BTreeMap, HashMap},

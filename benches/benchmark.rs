@@ -1,7 +1,10 @@
+#[path = "../tests/shp_utils.rs"]
+mod shp_utils;
+
 use criterion::{Criterion, criterion_group, criterion_main};
 use pathfinding::prelude::dijkstra;
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use routingkit_cch::{CCH, CCHMetric, CCHQuery, compute_order_inertial, shp_utils};
+use routingkit_cch::{CCH, CCHMetric, CCHQuery, compute_order_inertial};
 
 fn bench_pathfinding(c: &mut Criterion) {
     for city in ["beijing", "chengdu", "cityindia", "harbin", "porto"] {

@@ -1,8 +1,5 @@
 #![doc = include_str!("../README.md")]
 
-// Expose test support utilities
-pub mod shp_utils;
-
 #[cxx::bridge]
 pub mod ffi {
     extern "C++" {
