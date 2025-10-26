@@ -118,6 +118,10 @@ unsafe impl Send for ffi::CCHQuery {}
 // Rust wrapper over FFI
 use cxx::UniquePtr;
 use ffi::*;
+pub use ffi::{
+    cch_compute_order_degree as compute_order_degree_unchecked,
+    cch_compute_order_inertial as compute_order_inertial_unchecked,
+};
 
 fn is_permutation(arr: &[u32]) -> bool {
     let n = arr.len();
@@ -135,7 +139,7 @@ fn is_permutation(arr: &[u32]) -> bool {
 /// Fast but lower quality than nested dissection. Use if no coordinates or other data available.
 /// Panics if tail/head have inconsistent lengths or contain invalid node ids.
 pub fn compute_order_degree(node_count: u32, tail: &[u32], head: &[u32]) -> Vec<u32> {
-    debug_assert!(
+    assert!(
         tail.iter()
             .chain(head)
             .max()
@@ -160,7 +164,7 @@ pub fn compute_order_inertial(
     latitude: &[f32],
     longitude: &[f32],
 ) -> Vec<u32> {
-    debug_assert!(
+    assert!(
         tail.iter()
             .chain(head)
             .max()
@@ -214,21 +218,31 @@ impl CCH {
         log_message: fn(&str),
         filter_always_inf_arcs: bool,
     ) -> Self {
-        debug_assert!(
+        assert!(
             is_permutation(order),
             "order array is not a valid permutation"
         );
-        debug_assert!(
+        assert!(
+            tail.len() == head.len(),
+            "tail and head arrays must have the same length"
+        );
+        assert!(
             tail.iter()
                 .chain(head)
                 .max()
                 .map_or(true, |&v| (v as usize) < order.len()),
             "tail/head contain node ids outside valid range"
         );
-        assert!(
-            tail.len() == head.len(),
-            "tail and head arrays must have the same length"
-        );
+        unsafe { Self::new_unchecked(order, tail, head, log_message, filter_always_inf_arcs) }
+    }
+
+    pub unsafe fn new_unchecked(
+        order: &[u32],
+        tail: &[u32],
+        head: &[u32],
+        log_message: fn(&str),
+        filter_always_inf_arcs: bool,
+    ) -> Self {
         let cch = unsafe { cch_new(order, tail, head, log_message, filter_always_inf_arcs) };
         CCH {
             inner: cch,

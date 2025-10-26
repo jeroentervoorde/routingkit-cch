@@ -62,7 +62,7 @@ OpenMP is enabled automatically by the build script; ensure your toolchain provi
 Without it the build may fail when `CCHMetric::parallel_new` is called.
 
 ## Quick Start
-> For a python example, see [`examples/draft.py`](examples/draft.py).
+> For python examples, see [`examples`](./examples) folder.
 ```rust
 use routingkit_cch::{CCH, CCHMetric, CCHQuery, compute_order_degree};
 

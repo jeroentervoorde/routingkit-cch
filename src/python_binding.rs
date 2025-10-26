@@ -94,11 +94,12 @@ impl PyCCHMetricPartialUpdater {
     }
 
     fn apply(&mut self, py: Python, metric: Py<PyCCHMetric>, updates: HashMap<u32, u32>) {
+        let mut metric_ref = metric.borrow_mut(py);
         assert!(
-            metric.borrow_mut(py).query_count == 0,
+            metric_ref.query_count == 0,
             "cannot apply updates while there are active CCHQuerys using the metric"
         );
-        let a = unsafe { extend_lifetime_mut(&mut metric.borrow_mut(py).inner) };
+        let a = unsafe { extend_lifetime_mut(&mut metric_ref.inner) };
         self.inner.apply(a, &updates);
     }
 }
