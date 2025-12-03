@@ -27,6 +27,8 @@ pub mod ffi {
         /// Keeps pointer to weights in CCHMetric; weights length must equal arc count.
         unsafe fn cch_metric_new(cch: &CCH, weights: &[u32]) -> UniquePtr<CCHMetric>;
 
+        
+
         /// Run customization to compute upward/downward shortcut weights.
         /// Must be called after creating a metric and before queries.
         /// Cost: Depends on separator quality; usually near-linear in m * small constant; may allocate temporary buffers.
@@ -69,6 +71,19 @@ pub mod ffi {
 
         /// Get shortest distance after run(). Undefined if run() not called.
         unsafe fn cch_query_distance(query: &CCHQuery) -> u32;
+
+        /// Get the shortest path meeting node (CH internal node where bidirectional search met).
+        unsafe fn cch_query_meeting_node(query: &CCHQuery) -> u32;
+
+        /// Extract the CCH arc ids (shortcut arc ids) along the shortest path.
+        /// These are the CCH-level arc ids before unpacking to original input arcs.
+        unsafe fn cch_query_cch_arc_path(query: &CCHQuery) -> Vec<u32>;
+        unsafe fn cch_query_unpack_arc_path_with_metric(
+            query: &CCHQuery,
+            metric: &CCHMetric,
+        ) -> Vec<u32>;
+        /// Compute the weight of a CCH arc path given a metric.
+        unsafe fn cch_metric_weight_of_cch_arc_path(metric: &CCHMetric, cch_arcs: &[u32]) -> u64;
 
         /// Extract the node path for the current query result.
         /// Reconstructs path; may traverse parent pointers.
@@ -307,6 +322,12 @@ impl<'a> CCHMetric<'a> {
     pub fn weights(&self) -> &[u32] {
         &self.weights
     }
+
+    /// Compute the total metric weight of the provided CCH-level arc path.
+    /// The path is a sequence of CCH arc ids (as returned by `cch_arc_path()`).
+    pub fn weight_of_cch_arc_path(&self, cch_arcs: &[u32]) -> u64 {
+        unsafe { cch_metric_weight_of_cch_arc_path(self.inner.as_ref().unwrap(), cch_arcs) }
+    }
 }
 
 /// Reusable partial customization helper. Construct once if you perform many small incremental
@@ -446,6 +467,29 @@ impl<'b, 'a> CCHQueryResult<'b, 'a> {
     /// Returns empty vec if no target is reachable.
     pub fn arc_path(&self) -> Vec<u32> {
         unsafe { cch_query_arc_path(self.query.inner.as_ref().unwrap()) }
+    }
+
+    /// Return the internal CCH node where the bidirectional search frontiers met.
+    /// Returns `u32::MAX` if no path was found.
+    pub fn meeting_node(&self) -> u32 {
+        unsafe { cch_query_meeting_node(self.query.inner.as_ref().unwrap()) }
+    }
+
+    /// Return the sequence of CCH-level arc ids (shortcuts) along the shortest path.
+    pub fn cch_arc_path(&self) -> Vec<u32> {
+        unsafe { cch_query_cch_arc_path(self.query.inner.as_ref().unwrap()) }
+    }
+
+    /// Unpack the CCH-level path for this query using an arbitrary metric.
+    /// This lets you compute the original input-arc sequence using `metric_to_use`.
+    /// The query must be in `run` state (i.e., call this on a `CCHQueryResult`).
+    pub fn unpack_arc_path_with_metric(&self, metric_to_use: &CCHMetric) -> Vec<u32> {
+        unsafe {
+            cch_query_unpack_arc_path_with_metric(
+                self.query.inner.as_ref().unwrap(),
+                metric_to_use.inner.as_ref().unwrap(),
+            )
+        }
     }
 }
 

@@ -46,8 +46,12 @@ void cch_query_add_source(CCHQuery &query, uint32_t s, uint32_t dist);
 void cch_query_add_target(CCHQuery &query, uint32_t t, uint32_t dist);
 void cch_query_run(CCHQuery &query);
 uint32_t cch_query_distance(const CCHQuery &query);
+uint32_t cch_query_meeting_node(const CCHQuery &query);
 rust::Vec<uint32_t> cch_query_node_path(const CCHQuery &query);
 rust::Vec<uint32_t> cch_query_arc_path(const CCHQuery &query);
+rust::Vec<uint32_t> cch_query_cch_arc_path(const CCHQuery &query);
+rust::Vec<uint32_t> cch_query_unpack_arc_path_with_metric(const CCHQuery &query, const CCHMetric &metric);
+uint64_t cch_metric_weight_of_cch_arc_path(const CCHMetric &metric, rust::Slice<const uint32_t> cch_arcs);
 rust::Vec<uint32_t> cch_compute_order_inertial(
     uint32_t node_count,
     rust::Slice<const uint32_t> tail,

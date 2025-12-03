@@ -91,6 +91,11 @@ uint32_t cch_query_distance(const CCHQuery &query)
     return mut_query.get_distance();
 }
 
+uint32_t cch_query_meeting_node(const CCHQuery &query)
+{
+    return query.inner.get_meeting_node();
+}
+
 rust::Vec<uint32_t> cch_query_node_path(const CCHQuery &query)
 {
     auto &mut_query = const_cast<RoutingKit::CustomizableContractionHierarchyQuery &>(query.inner);
@@ -111,6 +116,41 @@ rust::Vec<uint32_t> cch_query_arc_path(const CCHQuery &query)
     for (auto x : path)
         out.push_back(static_cast<uint32_t>(x));
     return out;
+}
+
+rust::Vec<uint32_t> cch_query_cch_arc_path(const CCHQuery &query)
+{
+    auto &mut_query = const_cast<RoutingKit::CustomizableContractionHierarchyQuery &>(query.inner);
+    auto path = mut_query.get_cch_arc_path();
+    rust::Vec<uint32_t> out;
+    out.reserve(path.size());
+    for (auto x : path)
+        out.push_back(static_cast<uint32_t>(x));
+    return out;
+}
+
+rust::Vec<uint32_t> cch_query_unpack_arc_path_with_metric(const CCHQuery &query, const CCHMetric &metric)
+{
+    // Query is const-ref; we call the const method that unpacks using the provided metric.
+    auto &q = const_cast<RoutingKit::CustomizableContractionHierarchyQuery &>(query.inner);
+    auto &m = metric.inner;
+    auto path = q.get_arc_path_with_metric(m);
+    rust::Vec<uint32_t> out;
+    out.reserve(path.size());
+    for (auto x : path)
+        out.push_back(static_cast<uint32_t>(x));
+    return out;
+}
+
+uint64_t cch_metric_weight_of_cch_arc_path(const CCHMetric &metric, rust::Slice<const uint32_t> cch_arcs)
+{
+    std::vector<unsigned> arcs;
+    arcs.reserve(cch_arcs.size());
+    for (size_t i = 0; i < cch_arcs.size(); ++i)
+        arcs.push_back(static_cast<unsigned>(cch_arcs[i]));
+
+    unsigned long long w = metric.inner.get_weight_of_cch_arc_path(arcs);
+    return static_cast<uint64_t>(w);
 }
 
 rust::Vec<uint32_t> cch_compute_order_inertial(
