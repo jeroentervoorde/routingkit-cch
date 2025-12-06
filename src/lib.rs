@@ -2,6 +2,7 @@
 
 #[cxx::bridge]
 pub mod ffi {
+
     extern "C++" {
         include!("routingkit_cch_wrapper.h");
 
@@ -27,8 +28,6 @@ pub mod ffi {
         /// Keeps pointer to weights in CCHMetric; weights length must equal arc count.
         unsafe fn cch_metric_new(cch: &CCH, weights: &[u32]) -> UniquePtr<CCHMetric>;
 
-        
-
         /// Run customization to compute upward/downward shortcut weights.
         /// Must be called after creating a metric and before queries.
         /// Cost: Depends on separator quality; usually near-linear in m * small constant; may allocate temporary buffers.
@@ -36,6 +35,13 @@ pub mod ffi {
 
         /// Parallel customization; thread_count==0 picks an internal default (#procs if OpenMP, else 1).
         unsafe fn cch_metric_parallel_customize(metric: Pin<&mut CCHMetric>, thread_count: u32);
+
+        /// Run PHAST from source to a set of target nodes, returning their distances.
+        unsafe fn cch_query_phast_to_targets(
+            query: &CCHQuery,
+            source: u32,
+            targets: &[u32],
+        ) -> Vec<u32>;
 
         /// Allocate a new reusable partial customization helper bound to a CCH.
         unsafe fn cch_partial_new(cch: &CCH) -> UniquePtr<CCHPartial>;
@@ -69,8 +75,15 @@ pub mod ffi {
         /// Must be called after adding at least one source & target.
         unsafe fn cch_query_run(query: Pin<&mut CCHQuery>);
 
+        /// Execute the search to all pinned targets (after sources/targets are added).
+        unsafe fn cch_query_run_to_pinned_targets(query: Pin<&mut CCHQuery>);
+
         /// Get shortest distance after run(). Undefined if run() not called.
         unsafe fn cch_query_distance(query: &CCHQuery) -> u32;
+
+        unsafe fn cch_query_sum(query: &CCHQuery, weight: &[u32]) -> u32;
+
+        unsafe fn cch_query_doit(query: &CCHQuery, metric: &CCHMetric) -> u32;
 
         /// Get the shortest path meeting node (CH internal node where bidirectional search met).
         unsafe fn cch_query_meeting_node(query: &CCHQuery) -> u32;
@@ -82,8 +95,13 @@ pub mod ffi {
             query: &CCHQuery,
             metric: &CCHMetric,
         ) -> Vec<u32>;
-        /// Compute the weight of a CCH arc path given a metric.
-        unsafe fn cch_metric_weight_of_cch_arc_path(metric: &CCHMetric, cch_arcs: &[u32]) -> u64;
+        /// Compute the weight of a CCH arc path given a metric and an original metric
+        /// used for unpacking input arcs (to obtain exact input-arc sums).
+        unsafe fn cch_metric_weight_of_cch_arc_path(
+            metric: &CCHMetric,
+            cch_arcs: &[u32],
+            original_metric: &CCHMetric,
+        ) -> u64;
 
         /// Extract the node path for the current query result.
         /// Reconstructs path; may traverse parent pointers.
@@ -111,6 +129,9 @@ pub mod ffi {
         /// Lower quality than nested dissection but zero extra data needed.
         unsafe fn cch_compute_order_degree(node_count: u32, tail: &[u32], head: &[u32])
         -> Vec<u32>;
+
+        /// Get distances to all pinned targets after running the query.
+        unsafe fn cch_query_get_distances_to_targets(query: &CCHQuery) -> Vec<u32>;
     }
 }
 
@@ -325,8 +346,14 @@ impl<'a> CCHMetric<'a> {
 
     /// Compute the total metric weight of the provided CCH-level arc path.
     /// The path is a sequence of CCH arc ids (as returned by `cch_arc_path()`).
-    pub fn weight_of_cch_arc_path(&self, cch_arcs: &[u32]) -> u64 {
-        unsafe { cch_metric_weight_of_cch_arc_path(self.inner.as_ref().unwrap(), cch_arcs) }
+    pub fn weight_of_cch_arc_path(&self, cch_arcs: &[u32], original_metric: &CCHMetric) -> u64 {
+        unsafe {
+            cch_metric_weight_of_cch_arc_path(
+                self.inner.as_ref().unwrap(),
+                cch_arcs,
+                original_metric.inner.as_ref().unwrap(),
+            )
+        }
     }
 }
 
@@ -434,6 +461,20 @@ impl<'a> CCHQuery<'a> {
         }
         CCHQueryResult { query: self }
     }
+
+    /// Run the query to all pinned targets (after sources/targets are added).
+    pub fn run_to_pinned_targets<'b>(&'b mut self) -> CCHQueryResult<'b, 'a> {
+        assert!(self.state.iter().all(|&x| x), "must add at least one source and one target before running the query");
+        unsafe {
+            ffi::cch_query_run_to_pinned_targets(self.inner.as_mut().unwrap());
+        }
+        CCHQueryResult { query: self }
+    }
+
+    /// Run PHAST from source to a set of target nodes, returning their distances.
+    pub fn phast_to_targets(&self, source: u32, targets: &[u32]) -> Vec<u32> {
+        unsafe { ffi::cch_query_phast_to_targets(self.inner.as_ref().unwrap(), source, targets) }
+    }
 }
 
 /// The result of a single execution of a [`CCHQuery`].
@@ -449,6 +490,16 @@ impl<'b, 'a> CCHQueryResult<'b, 'a> {
     /// Returns `None` if no target is reachable.
     pub fn distance(&self) -> Option<u32> {
         let res = unsafe { cch_query_distance(self.query.inner.as_ref().unwrap()) };
+        if res == (i32::MAX as u32) {
+            // internally distance equals `i32::MAX` means unreachable
+            None
+        } else {
+            Some(res)
+        }
+    }
+
+    pub fn sum(&self, weights: &[u32]) -> Option<u32> {
+        let res = unsafe { cch_query_sum(self.query.inner.as_ref().unwrap(), weights) };
         if res == (i32::MAX as u32) {
             // internally distance equals `i32::MAX` means unreachable
             None
@@ -480,6 +531,17 @@ impl<'b, 'a> CCHQueryResult<'b, 'a> {
         unsafe { cch_query_cch_arc_path(self.query.inner.as_ref().unwrap()) }
     }
 
+    /// Return the internal CCH node where the bidirectional search frontiers met.
+    /// Returns `u32::MAX` if no path was found.
+    pub fn doit(&self, other: &CCHMetric) -> u32 {
+        unsafe {
+            cch_query_doit(
+                self.query.inner.as_ref().unwrap(),
+                &other.inner.as_ref().unwrap(),
+            )
+        }
+    }
+
     /// Unpack the CCH-level path for this query using an arbitrary metric.
     /// This lets you compute the original input-arc sequence using `metric_to_use`.
     /// The query must be in `run` state (i.e., call this on a `CCHQueryResult`).
@@ -490,6 +552,21 @@ impl<'b, 'a> CCHQueryResult<'b, 'a> {
                 metric_to_use.inner.as_ref().unwrap(),
             )
         }
+    }
+
+    /// Unpack the query path using `metric_to_use` and return the total sum of input
+    /// arc weights under that metric. This is the exact metric weight of the path
+    /// (no heuristic orientation required).
+    pub fn cch_path_weight_with_metric(&self, metric_to_use: &CCHMetric) -> u64 {
+        let arcs = self.unpack_arc_path_with_metric(metric_to_use);
+        arcs.into_iter()
+            .map(|a| metric_to_use.weights()[a as usize] as u64)
+            .sum()
+    }
+
+    /// Get distances to all pinned targets after running the query.
+    pub fn get_distances_to_targets(&self) -> Vec<u32> {
+        unsafe { ffi::cch_query_get_distances_to_targets(self.query.inner.as_ref().unwrap()) }
     }
 }
 
@@ -502,7 +579,6 @@ impl<'b, 'a> Drop for CCHQueryResult<'b, 'a> {
                 self.query.metric.inner.as_ref().unwrap(),
             );
         }
-        self.query.state.iter_mut().for_each(|x| *x = false);
     }
 }
 

@@ -2,11 +2,11 @@ use routingkit_cch::{CCH, CCHMetric};
 
 fn main() {
     // Small example graph: 4 nodes, edges: 0->1 (1), 1->2 (1), 0->2 (3), 2->3 (1)
-    let order = vec![0u32, 1, 2, 3];
-    let tail = vec![0u32, 1, 0, 2];
-    let head = vec![1u32, 2, 2, 3];
-    let weights_a = vec![1u32, 1, 3, 1]; // metric A
-    let weights_b = vec![2u32, 2, 2, 1]; // metric B (penalizes some arcs differently)
+    let order = vec![3u32, 2, 1, 0, 4, 5, 6];
+    let tail = vec![0u32, 1, 2, 3, 4, 5, 6];
+    let head = vec![1u32, 2, 3, 4, 5, 6, 0];
+    let weights_a = vec![1u32, 1, 3, 1, 5, 3, 1]; // metric A
+    let weights_b = vec![2u32, 2, 2, 2, 2, 2, 2]; // metric B (penalizes some arcs differently)
 
     // Build CCH
     let cch = CCH::new(&order, &tail, &head, |_| {}, false);
@@ -15,7 +15,7 @@ fn main() {
     let metric_a = CCHMetric::new(&cch, weights_a);
     let mut q = routingkit_cch::CCHQuery::new(&metric_a);
     q.add_source(0, 0);
-    q.add_target(3, 0);
+    q.add_target(6, 0);
     let res = q.run();
     let dist_a = res.distance();
     let arc_path_unpacked = res.arc_path();
@@ -38,7 +38,7 @@ fn main() {
     );
 
     // Compute the weight of the CCH-level path under metric B directly (no unpacking needed).
-    let weight_cch_path_b = metric_b.weight_of_cch_arc_path(&cch_arc_path);
+    let weight_cch_path_b = metric_b.weight_of_cch_arc_path(&cch_arc_path, &metric_b);
     println!(
         "Weight of CCH-level path under Metric B (summed): {}",
         weight_cch_path_b

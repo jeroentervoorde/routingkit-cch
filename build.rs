@@ -95,6 +95,7 @@ const RK_ALLOW: &[&str] = &[
     "verify.cpp",
     "graph_util.cpp",
     "timer.cpp",
+    "inverted_down_graph.cpp",
 ];
 
 /// Collect list of source files (patched versions if needed) to compile.

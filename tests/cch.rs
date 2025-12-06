@@ -1,3 +1,4 @@
+#[test]
 mod shp_utils;
 
 use indicatif::{MultiProgress, ProgressBar, ProgressIterator};
@@ -342,3 +343,22 @@ fn partial_update_with_reusable_updater() {
     assert_eq!(q5.run().distance(), Some(16));
     assert_eq!(metric.weights(), vec![6, 10, 20]);
 }
+
+// fn test_phast_to_targets() {
+//     // Build a tiny graph: 0 -> 1 -> 2, weights 1
+//     let order = vec![0, 1, 2];
+//     let tail = vec![0, 1];
+//     let head = vec![1, 2];
+//     let weights = vec![1, 1];
+//     let cch = routingkit_cch::CCH::new(&order, &tail, &head, |_| {}, false);
+//     let mut metric = routingkit_cch::CCHMetric::new(&cch, weights.clone());
+//     metric.customize();
+//     let mut query = routingkit_cch::CCHQuery::new(&metric);
+//     // PHAST from node 0 to nodes 0, 1, 2
+//     let targets = vec![0, 1, 2];
+//     let dists = query.phast_to_targets(0, &targets);
+//     assert_eq!(dists.len(), 3);
+//     assert_eq!(dists[0], 0); // 0 to 0
+//     assert_eq!(dists[1], 1); // 0 to 1
+//     assert_eq!(dists[2], 2); // 0 to 2
+// }
