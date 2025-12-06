@@ -1,4 +1,3 @@
-
 #pragma once
 #include <memory>
 #include <vector>
@@ -46,17 +45,12 @@ void cch_query_reset(CCHQuery &query, const CCHMetric &metric);
 void cch_query_add_source(CCHQuery &query, uint32_t s, uint32_t dist);
 void cch_query_add_target(CCHQuery &query, uint32_t t, uint32_t dist);
 void cch_query_run(CCHQuery &query);
-// Expose run_to_pinned_targets
 void cch_query_run_to_pinned_targets(CCHQuery &query);
+rust::Vec<uint32_t> cch_query_get_distances_to_targets(const CCHQuery &query);
+
 uint32_t cch_query_distance(const CCHQuery &query);
-uint32_t cch_query_sum(const CCHQuery &query, rust::Slice<const uint32_t> weights);
-uint32_t cch_query_meeting_node(const CCHQuery &query);
 rust::Vec<uint32_t> cch_query_node_path(const CCHQuery &query);
 rust::Vec<uint32_t> cch_query_arc_path(const CCHQuery &query);
-rust::Vec<uint32_t> cch_query_cch_arc_path(const CCHQuery &query);
-rust::Vec<uint32_t> cch_query_unpack_arc_path_with_metric(const CCHQuery &query, const CCHMetric &metric);
-uint64_t cch_metric_weight_of_cch_arc_path(const CCHMetric &metric, rust::Slice<const uint32_t> cch_arcs, const CCHMetric &original_metric);
-uint32_t cch_query_doit(const CCHQuery &query, const CCHMetric &other_metric);
 rust::Vec<uint32_t> cch_compute_order_inertial(
     uint32_t node_count,
     rust::Slice<const uint32_t> tail,
@@ -67,10 +61,8 @@ rust::Vec<uint32_t> cch_compute_order_degree(
     uint32_t node_count,
     rust::Slice<const uint32_t> tail,
     rust::Slice<const uint32_t> head);
-rust::Vec<uint32_t> cch_query_phast_to_targets(const CCHQuery &query, uint32_t source, rust::Slice<const uint32_t> targets);
 
 // Partial customization API
-rust::Vec<uint32_t> cch_query_get_distances_to_targets(const CCHQuery &query);
 
 std::unique_ptr<CCHPartial> cch_partial_new(const CCH &cch);
 void cch_partial_reset(CCHPartial &partial);
