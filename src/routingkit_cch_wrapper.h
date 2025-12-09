@@ -46,7 +46,9 @@ void cch_query_add_source(CCHQuery &query, uint32_t s, uint32_t dist);
 void cch_query_add_target(CCHQuery &query, uint32_t t, uint32_t dist);
 void cch_query_run(CCHQuery &query);
 void cch_query_run_to_pinned_targets(CCHQuery &query);
+void cch_query_pin_targets(CCHQuery &query, rust::Slice<const uint32_t> targets);
 rust::Vec<uint32_t> cch_query_get_distances_to_targets(const CCHQuery &query);
+void cch_query_get_distances_to_targets_no_alloc(const CCHQuery &query, rust::Slice<uint32_t> dists);
 
 uint32_t cch_query_distance(const CCHQuery &query);
 rust::Vec<uint32_t> cch_query_node_path(const CCHQuery &query);

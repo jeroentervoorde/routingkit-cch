@@ -98,8 +98,13 @@ pub mod ffi {
         unsafe fn cch_compute_order_degree(node_count: u32, tail: &[u32], head: &[u32])
         -> Vec<u32>;
 
+        /// Pin a set of target nodes for the next query.
+        unsafe fn cch_query_pin_targets(query: Pin<&mut CCHQuery>, targets: &[u32]);
+
         /// Execute the search to all pinned targets (after sources/targets are added).
         unsafe fn cch_query_run_to_pinned_targets(query: Pin<&mut CCHQuery>);
+
+        unsafe fn cch_query_get_distances_to_targets_no_alloc(query: &CCHQuery, dists: &mut [u32]);
 
         /// Get distances to all pinned targets after running the query.
         unsafe fn cch_query_get_distances_to_targets(query: &CCHQuery) -> Vec<u32>;
@@ -366,6 +371,19 @@ pub struct CCHQuery<'a> {
 }
 
 impl<'a> CCHQuery<'a> {
+    /// Pin a set of target nodes for the next query. This restricts the search to only these targets.
+    pub fn pin_targets(&mut self, targets: &[u32]) {
+        for &t in targets {
+            assert!(
+                (t as usize) < self.metric.cch.node_count,
+                "target node id out of range"
+            );
+        }
+        unsafe {
+            ffi::cch_query_pin_targets(self.inner.as_mut().unwrap(), targets);
+        }
+        self.state[1] = true;
+    }
     /// Allocate a new reusable shortest-path query bound to a given customized [`CCHMetric`].
     ///
     /// The query object stores its own frontier / label buffers and can be reset and reused for
@@ -423,7 +441,10 @@ impl<'a> CCHQuery<'a> {
 
     /// Run the query to all pinned targets (after sources/targets are added).
     pub fn run_to_pinned_targets<'b>(&'b mut self) -> CCHQueryResult<'b, 'a> {
-        assert!(self.state.iter().all(|&x| x), "must add at least one source and one target before running the query");
+        assert!(
+            self.state.iter().all(|&x| x),
+            "must add at least one source and one target before running the query"
+        );
         unsafe {
             ffi::cch_query_run_to_pinned_targets(self.inner.as_mut().unwrap());
         }
@@ -467,6 +488,16 @@ impl<'b, 'a> CCHQueryResult<'b, 'a> {
     /// Get distances to all pinned targets after running the query.
     pub fn get_distances_to_targets(&self) -> Vec<u32> {
         unsafe { ffi::cch_query_get_distances_to_targets(self.query.inner.as_ref().unwrap()) }
+    }
+
+    /// Get distances to all pinned targets after running the query.
+    pub fn get_distances_to_targets_no_alloc(&self, dists: &mut [u32]) {
+        unsafe {
+            ffi::cch_query_get_distances_to_targets_no_alloc(
+                self.query.inner.as_ref().unwrap(),
+                dists,
+            )
+        }
     }
 }
 

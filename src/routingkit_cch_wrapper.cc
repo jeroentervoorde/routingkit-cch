@@ -90,6 +90,15 @@ void cch_query_run_to_pinned_targets(CCHQuery &query)
     query.inner.run_to_pinned_targets();
 }
 
+void cch_query_pin_targets(CCHQuery &query, rust::Slice<const uint32_t> targets)
+{
+    std::vector<unsigned> tgt;
+    tgt.reserve(targets.size());
+    for (size_t i = 0; i < targets.size(); ++i)
+        tgt.push_back(targets[i]);
+    query.inner.pin_targets(tgt);
+}
+
 uint32_t cch_query_distance(const CCHQuery &query)
 {
     auto &mut_query = const_cast<RoutingKit::CustomizableContractionHierarchyQuery &>(query.inner);
@@ -129,6 +138,11 @@ rust::Vec<uint32_t> cch_query_get_distances_to_targets(const CCHQuery &query)
         out.push_back(static_cast<uint32_t>(v));
     }
     return out;
+}
+void cch_query_get_distances_to_targets_no_alloc(const CCHQuery &query, rust::Slice<uint32_t> dists)
+{
+    auto &mut_query = const_cast<RoutingKit::CustomizableContractionHierarchyQuery &>(query.inner);
+    mut_query.get_distances_to_targets(reinterpret_cast<unsigned *>(dists.data()));
 }
 
 rust::Vec<uint32_t> cch_compute_order_inertial(
