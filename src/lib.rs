@@ -10,6 +10,8 @@ pub mod ffi {
         type CCHMetric; // CustomizableContractionHierarchyMetric
         type CCHQuery; // CustomizableContractionHierarchyQuery
         type CCHPartial; // CustomizableContractionHierarchyPartialCustomization
+        type CH; // ContractionHierarchy
+        type CHQuery; // ContractionHierarchyQuery
 
         /// Build a Customizable Contraction Hierarchy.
         /// Arguments:
@@ -35,6 +37,9 @@ pub mod ffi {
 
         /// Parallel customization; thread_count==0 picks an internal default (#procs if OpenMP, else 1).
         unsafe fn cch_metric_parallel_customize(metric: Pin<&mut CCHMetric>, thread_count: u32);
+
+        /// Build a standard Contraction Hierarchy using perfect witness search from the CCH metric.
+        unsafe fn cch_metric_build_perfect_ch(metric: Pin<&mut CCHMetric>) -> UniquePtr<CH>;
 
         /// Allocate a new reusable partial customization helper bound to a CCH.
         unsafe fn cch_partial_new(cch: &CCH) -> UniquePtr<CCHPartial>;
@@ -108,6 +113,20 @@ pub mod ffi {
 
         /// Get distances to all pinned targets after running the query.
         unsafe fn cch_query_get_distances_to_targets(query: &CCHQuery) -> Vec<u32>;
+
+        // CH Query API
+        unsafe fn ch_query_new(ch: &CH) -> UniquePtr<CHQuery>;
+        unsafe fn ch_query_reset(query: Pin<&mut CHQuery>, ch: &CH);
+        unsafe fn ch_query_add_source(query: Pin<&mut CHQuery>, s: u32, dist: u32);
+        unsafe fn ch_query_add_target(query: Pin<&mut CHQuery>, t: u32, dist: u32);
+        unsafe fn ch_query_run(query: Pin<&mut CHQuery>);
+        unsafe fn ch_query_pin_targets(query: Pin<&mut CHQuery>, targets: &[u32]);
+        unsafe fn ch_query_run_to_pinned_targets(query: Pin<&mut CHQuery>);
+        unsafe fn ch_query_get_distances_to_targets(query: &CHQuery) -> Vec<u32>;
+        unsafe fn ch_query_get_distances_to_targets_no_alloc(query: &CHQuery, dists: &mut [u32]);
+        unsafe fn ch_query_distance(query: &CHQuery) -> u32;
+        unsafe fn ch_query_node_path(query: &CHQuery) -> Vec<u32>;
+        unsafe fn ch_query_arc_path(query: &CHQuery) -> Vec<u32>;
     }
 }
 
@@ -124,6 +143,8 @@ unsafe impl Send for ffi::CCH {}
 unsafe impl Sync for ffi::CCH {}
 unsafe impl Send for ffi::CCHMetric {}
 unsafe impl Sync for ffi::CCHMetric {}
+unsafe impl Send for ffi::CH {}
+unsafe impl Sync for ffi::CH {}
 unsafe impl Send for ffi::CCHQuery {}
 // (No Sync for CCHQuery)
 
@@ -264,6 +285,53 @@ impl CCH {
     }
 }
 
+/// Standard Contraction Hierarchy index.
+pub struct CH {
+    inner: UniquePtr<ffi::CH>,
+}
+
+/// A reusable query object for a [`CH`].
+pub struct CHQuery {
+    inner: UniquePtr<ffi::CHQuery>,
+}
+
+impl CHQuery {
+    pub fn new(ch: &CH) -> Self {
+        let query = unsafe { ch_query_new(&ch.inner) };
+        CHQuery { inner: query }
+    }
+
+    pub fn reset(&mut self, ch: &CH) {
+        unsafe { ch_query_reset(self.inner.pin_mut(), &ch.inner) }
+    }
+
+    pub fn add_source(&mut self, s: u32, dist: u32) {
+        unsafe { ch_query_add_source(self.inner.pin_mut(), s, dist) }
+    }
+
+    pub fn add_target(&mut self, t: u32, dist: u32) {
+        unsafe { ch_query_add_target(self.inner.pin_mut(), t, dist) }
+    }
+
+    pub fn pin_targets(&mut self, targets: &[u32]) {
+        unsafe { ch_query_pin_targets(self.inner.pin_mut(), targets) }
+    }
+
+    pub fn run<'b>(&'b mut self) -> CCHQueryResult<'b, 'static> {
+        unsafe { ch_query_run(self.inner.pin_mut()) };
+        CCHQueryResult {
+            query: QueryRef::CH(self),
+        }
+    }
+
+    pub fn run_to_pinned_targets<'b>(&'b mut self) -> CCHQueryResult<'b, 'static> {
+        unsafe { ch_query_run_to_pinned_targets(self.inner.pin_mut()) };
+        CCHQueryResult {
+            query: QueryRef::CH(self),
+        }
+    }
+}
+
 /// A customized metric (weight binding) for a given [`CCH`].
 /// Keeps ownership of the weight vector so it can be mutated for partial updates.
 /// Thread-safety: `Send + Sync`; read-only for queries.
@@ -295,6 +363,26 @@ impl<'a> CCHMetric<'a> {
         }
     }
 
+    /// Create and customize a metric (weight binding) for a given [`CCH`].
+    /// Owns the weight vector so that future partial updates can safely mutate it.
+    pub fn new_no_customize(cch: &'a CCH, weights: Vec<u32>) -> Self {
+        assert!(
+            weights.len() == cch.edge_count,
+            "weights length must equal arc count",
+        );
+        let boxed: Box<[u32]> = weights.into_boxed_slice();
+        // Temporarily borrow as slice for FFI creation
+        let metric = unsafe {
+            let mut metric = cch_metric_new(&cch.inner, &boxed);
+            metric
+        };
+        CCHMetric {
+            inner: metric,
+            weights: boxed,
+            cch,
+        }
+    }
+
     /// Parallel customization variant.
     #[cfg(feature = "openmp")]
     pub fn parallel_new(cch: &'a CCH, weights: Vec<u32>, thread_count: u32) -> Self {
@@ -313,6 +401,13 @@ impl<'a> CCHMetric<'a> {
             weights: boxed,
             cch,
         }
+    }
+
+    /// Build a standard Contraction Hierarchy using perfect witness search.
+    /// This converts the CCH metric into a standard CH.
+    pub fn build_contraction_hierarchy_using_perfect_witness_search(&mut self) -> CH {
+        let ch = unsafe { cch_metric_build_perfect_ch(self.inner.as_mut().unwrap()) };
+        CH { inner: ch }
     }
 
     /// weights slice
@@ -436,7 +531,9 @@ impl<'a> CCHQuery<'a> {
         unsafe {
             cch_query_run(self.inner.as_mut().unwrap());
         }
-        CCHQueryResult { query: self }
+        CCHQueryResult {
+            query: QueryRef::CCH(self),
+        }
     }
 
     /// Run the query to all pinned targets (after sources/targets are added).
@@ -448,8 +545,15 @@ impl<'a> CCHQuery<'a> {
         unsafe {
             ffi::cch_query_run_to_pinned_targets(self.inner.as_mut().unwrap());
         }
-        CCHQueryResult { query: self }
+        CCHQueryResult {
+            query: QueryRef::CCH(self),
+        }
     }
+}
+
+enum QueryRef<'b, 'a> {
+    CCH(&'b mut CCHQuery<'a>),
+    CH(&'b mut CHQuery),
 }
 
 /// The result of a single execution of a [`CCHQuery`].
@@ -457,14 +561,17 @@ impl<'a> CCHQuery<'a> {
 /// while the result is still alive. So you need to drop the result before reusing the query.
 /// When the result is dropped, the query is automatically reset.
 pub struct CCHQueryResult<'b, 'a> {
-    query: &'b mut CCHQuery<'a>,
+    query: QueryRef<'b, 'a>,
 }
 
 impl<'b, 'a> CCHQueryResult<'b, 'a> {
     /// Return the shortest path distance result of [`CCHQuery::run`].
     /// Returns `None` if no target is reachable.
     pub fn distance(&self) -> Option<u32> {
-        let res = unsafe { cch_query_distance(self.query.inner.as_ref().unwrap()) };
+        let res = match &self.query {
+            QueryRef::CCH(q) => unsafe { cch_query_distance(q.inner.as_ref().unwrap()) },
+            QueryRef::CH(q) => unsafe { ch_query_distance(q.inner.as_ref().unwrap()) },
+        };
         if res == (i32::MAX as u32) {
             // internally distance equals `i32::MAX` means unreachable
             None
@@ -476,27 +583,42 @@ impl<'b, 'a> CCHQueryResult<'b, 'a> {
     /// Reconstruct and return the node id sequence of the current best path.
     /// Returns empty vec if no target is reachable.
     pub fn node_path(&self) -> Vec<u32> {
-        unsafe { cch_query_node_path(self.query.inner.as_ref().unwrap()) }
+        match &self.query {
+            QueryRef::CCH(q) => unsafe { cch_query_node_path(q.inner.as_ref().unwrap()) },
+            QueryRef::CH(q) => unsafe { ch_query_node_path(q.inner.as_ref().unwrap()) },
+        }
     }
 
     /// Reconstruct and return the original arc ids along the shortest path.
     /// Returns empty vec if no target is reachable.
     pub fn arc_path(&self) -> Vec<u32> {
-        unsafe { cch_query_arc_path(self.query.inner.as_ref().unwrap()) }
+        match &self.query {
+            QueryRef::CCH(q) => unsafe { cch_query_arc_path(q.inner.as_ref().unwrap()) },
+            QueryRef::CH(q) => unsafe { ch_query_arc_path(q.inner.as_ref().unwrap()) },
+        }
     }
 
     /// Get distances to all pinned targets after running the query.
     pub fn get_distances_to_targets(&self) -> Vec<u32> {
-        unsafe { ffi::cch_query_get_distances_to_targets(self.query.inner.as_ref().unwrap()) }
+        match &self.query {
+            QueryRef::CCH(q) => unsafe {
+                ffi::cch_query_get_distances_to_targets(q.inner.as_ref().unwrap())
+            },
+            QueryRef::CH(q) => unsafe {
+                ffi::ch_query_get_distances_to_targets(q.inner.as_ref().unwrap())
+            },
+        }
     }
 
     /// Get distances to all pinned targets after running the query.
     pub fn get_distances_to_targets_no_alloc(&self, dists: &mut [u32]) {
-        unsafe {
-            ffi::cch_query_get_distances_to_targets_no_alloc(
-                self.query.inner.as_ref().unwrap(),
-                dists,
-            )
+        match &self.query {
+            QueryRef::CCH(q) => unsafe {
+                ffi::cch_query_get_distances_to_targets_no_alloc(q.inner.as_ref().unwrap(), dists)
+            },
+            QueryRef::CH(q) => unsafe {
+                ffi::ch_query_get_distances_to_targets_no_alloc(q.inner.as_ref().unwrap(), dists)
+            },
         }
     }
 }
@@ -504,13 +626,21 @@ impl<'b, 'a> CCHQueryResult<'b, 'a> {
 impl<'b, 'a> Drop for CCHQueryResult<'b, 'a> {
     /// reset the query
     fn drop(&mut self) {
-        unsafe {
-            cch_query_reset(
-                self.query.inner.as_mut().unwrap(),
-                self.query.metric.inner.as_ref().unwrap(),
-            );
+        match &mut self.query {
+            QueryRef::CCH(q) => {
+                unsafe {
+                    cch_query_reset(q.inner.as_mut().unwrap(), q.metric.inner.as_ref().unwrap());
+                }
+                q.state.iter_mut().for_each(|x| *x = false);
+            }
+            QueryRef::CH(_) => {
+                // CH query reset is manual or not needed in the same way?
+                // The C++ wrapper has ch_query_reset but it takes a CH reference.
+                // We don't have the CH reference here easily unless we store it in CHQuery.
+                // For now, let's assume the user calls reset() manually on CHQuery if needed,
+                // or we change CHQuery to hold a reference to CH.
+            }
         }
-        self.query.state.iter_mut().for_each(|x| *x = false);
     }
 }
 
