@@ -41,6 +41,16 @@ pub mod ffi {
         /// Build a standard Contraction Hierarchy using perfect witness search from the CCH metric.
         unsafe fn cch_metric_build_perfect_ch(metric: Pin<&mut CCHMetric>) -> UniquePtr<CH>;
 
+        /// Build a Contraction Hierarchy.
+        unsafe fn ch_build(
+            node_count: u32,
+            tail: &[u32],
+            head: &[u32],
+            weight: &[u32],
+            log_message: fn(&str),
+            max_pop_count: u32,
+        ) -> UniquePtr<CH>;
+
         /// Allocate a new reusable partial customization helper bound to a CCH.
         unsafe fn cch_partial_new(cch: &CCH) -> UniquePtr<CCHPartial>;
 
@@ -288,6 +298,22 @@ impl CCH {
 /// Standard Contraction Hierarchy index.
 pub struct CH {
     inner: UniquePtr<ffi::CH>,
+}
+
+impl CH {
+    /// Build a Contraction Hierarchy.
+    pub fn build(
+        node_count: u32,
+        tail: &[u32],
+        head: &[u32],
+        weight: &[u32],
+        log_message: fn(&str),
+        max_pop_count: u32,
+    ) -> Self {
+        let ch =
+            unsafe { ffi::ch_build(node_count, tail, head, weight, log_message, max_pop_count) };
+        CH { inner: ch }
+    }
 }
 
 /// A reusable query object for a [`CH`].

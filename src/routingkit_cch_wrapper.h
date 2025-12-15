@@ -85,6 +85,14 @@ void cch_partial_reset(CCHPartial &partial);
 void cch_partial_update_arc(CCHPartial &partial, uint32_t arc);
 void cch_partial_customize(CCHPartial &partial, CCHMetric &metric);
 
+std::unique_ptr<CH> ch_build(
+    uint32_t node_count,
+    rust::Slice<const uint32_t> tail,
+    rust::Slice<const uint32_t> head,
+    rust::Slice<const uint32_t> weight,
+    rust::Fn<void(rust::Str)> log_message,
+    uint32_t max_pop_count);
+
 std::unique_ptr<CHQuery> ch_query_new(const CH &ch);
 void ch_query_reset(CHQuery &query, const CH &ch);
 void ch_query_add_source(CHQuery &query, uint32_t s, uint32_t dist);

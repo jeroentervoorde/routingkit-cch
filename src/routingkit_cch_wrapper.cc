@@ -238,6 +238,34 @@ void cch_partial_customize(CCHPartial &partial, CCHMetric &metric)
     partial.inner.customize(metric.inner);
 }
 
+std::unique_ptr<CH> ch_build(
+    uint32_t node_count,
+    rust::Slice<const uint32_t> tail,
+    rust::Slice<const uint32_t> head,
+    rust::Slice<const uint32_t> weight,
+    rust::Fn<void(rust::Str)> log_message,
+    uint32_t max_pop_count)
+{
+    auto to_vec = [](rust::Slice<const uint32_t> s)
+    {
+        std::vector<unsigned> v;
+        v.reserve(s.size());
+        for (size_t i = 0; i < s.size(); ++i)
+            v.push_back(s[i]);
+        return v;
+    };
+
+    auto ch = ContractionHierarchy::build(
+        node_count,
+        to_vec(tail),
+        to_vec(head),
+        to_vec(weight),
+        [log_message](const std::string &msg)
+        { log_message(msg); },
+        max_pop_count);
+    return std::unique_ptr<CH>(new CH(std::move(ch)));
+}
+
 // -------- CH Query wrappers --------
 
 std::unique_ptr<CHQuery> ch_query_new(const CH &ch)
