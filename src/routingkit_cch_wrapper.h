@@ -64,6 +64,14 @@ void cch_query_pin_targets(CCHQuery &query, rust::Slice<const uint32_t> targets)
 rust::Vec<uint32_t> cch_query_get_distances_to_targets(const CCHQuery &query);
 void cch_query_get_distances_to_targets_no_alloc(const CCHQuery &query, rust::Slice<uint32_t> dists);
 
+void cch_query_run_to_pinned_sources(CCHQuery &query);
+void cch_query_pin_sources(CCHQuery &query, rust::Slice<const uint32_t> sources);
+rust::Vec<uint32_t> cch_query_get_distances_to_sources(const CCHQuery &query);
+void cch_query_get_distances_to_sources_no_alloc(const CCHQuery &query, rust::Slice<uint32_t> dists);
+
+void cch_query_reset_source(CCHQuery &query);
+void cch_query_reset_target(CCHQuery &query);
+
 uint32_t cch_query_distance(const CCHQuery &query);
 rust::Vec<uint32_t> cch_query_node_path(const CCHQuery &query);
 rust::Vec<uint32_t> cch_query_arc_path(const CCHQuery &query);
@@ -93,8 +101,12 @@ std::unique_ptr<CH> ch_build(
     rust::Fn<void(rust::Str)> log_message,
     uint32_t max_pop_count);
 
+std::unique_ptr<CH> ch_load_file(rust::Str file_name);
+void ch_save_file(const CH &ch, rust::Str file_name);
+
 std::unique_ptr<CHQuery> ch_query_new(const CH &ch);
-void ch_query_reset(CHQuery &query, const CH &ch);
+void ch_query_reset_ch(CHQuery &query, const CH &ch);
+void ch_query_reset(CHQuery &query);
 void ch_query_add_source(CHQuery &query, uint32_t s, uint32_t dist);
 void ch_query_add_target(CHQuery &query, uint32_t t, uint32_t dist);
 void ch_query_run(CHQuery &query);
@@ -102,6 +114,14 @@ void ch_query_pin_targets(CHQuery &query, rust::Slice<const uint32_t> targets);
 void ch_query_run_to_pinned_targets(CHQuery &query);
 rust::Vec<uint32_t> ch_query_get_distances_to_targets(const CHQuery &query);
 void ch_query_get_distances_to_targets_no_alloc(const CHQuery &query, rust::Slice<uint32_t> dists);
+
+void ch_query_pin_sources(CHQuery &query, rust::Slice<const uint32_t> sources);
+void ch_query_run_to_pinned_sources(CHQuery &query);
+rust::Vec<uint32_t> ch_query_get_distances_to_sources(const CHQuery &query);
+void ch_query_get_distances_to_sources_no_alloc(const CHQuery &query, rust::Slice<uint32_t> dists);
+
 uint32_t ch_query_distance(const CHQuery &query);
 rust::Vec<uint32_t> ch_query_node_path(const CHQuery &query);
 rust::Vec<uint32_t> ch_query_arc_path(const CHQuery &query);
+void ch_query_reset_source(CHQuery &query);
+void ch_query_reset_target(CHQuery &query);

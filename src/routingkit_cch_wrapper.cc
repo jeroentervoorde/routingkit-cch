@@ -151,6 +151,49 @@ void cch_query_get_distances_to_targets_no_alloc(const CCHQuery &query, rust::Sl
     mut_query.get_distances_to_targets(reinterpret_cast<unsigned *>(dists.data()));
 }
 
+void cch_query_run_to_pinned_sources(CCHQuery &query)
+{
+    query.inner.run_to_pinned_sources();
+}
+
+void cch_query_pin_sources(CCHQuery &query, rust::Slice<const uint32_t> sources)
+{
+    std::vector<unsigned> src;
+    src.reserve(sources.size());
+    for (size_t i = 0; i < sources.size(); ++i)
+        src.push_back(sources[i]);
+    query.inner.pin_sources(src);
+}
+
+rust::Vec<uint32_t> cch_query_get_distances_to_sources(const CCHQuery &query)
+{
+    auto &mut_query = const_cast<RoutingKit::CustomizableContractionHierarchyQuery &>(query.inner);
+    std::vector<unsigned> result = mut_query.get_distances_to_sources();
+    rust::Vec<uint32_t> out;
+    out.reserve(result.size());
+    for (unsigned v : result)
+    {
+        out.push_back(static_cast<uint32_t>(v));
+    }
+    return out;
+}
+
+void cch_query_get_distances_to_sources_no_alloc(const CCHQuery &query, rust::Slice<uint32_t> dists)
+{
+    auto &mut_query = const_cast<RoutingKit::CustomizableContractionHierarchyQuery &>(query.inner);
+    mut_query.get_distances_to_sources(reinterpret_cast<unsigned *>(dists.data()));
+}
+
+void cch_query_reset_source(CCHQuery &query)
+{
+    query.inner.reset_source();
+}
+
+void cch_query_reset_target(CCHQuery &query)
+{
+    query.inner.reset_target();
+}
+
 rust::Vec<uint32_t> cch_compute_order_inertial(
     uint32_t node_count,
     rust::Slice<const uint32_t> tail,
@@ -266,12 +309,28 @@ std::unique_ptr<CH> ch_build(
     return std::unique_ptr<CH>(new CH(std::move(ch)));
 }
 
+std::unique_ptr<CH> ch_load_file(rust::Str file_name)
+{
+    auto ch = RoutingKit::ContractionHierarchy::load_file(std::string(file_name));
+    return std::unique_ptr<CH>(new CH(std::move(ch)));
+}
+
+void ch_save_file(const CH &ch, rust::Str file_name)
+{
+    ch.inner.save_file(std::string(file_name));
+}
+
 // -------- CH Query wrappers --------
 
 std::unique_ptr<CHQuery> ch_query_new(const CH &ch)
 {
     RoutingKit::ContractionHierarchyQuery q(ch.inner);
     return std::unique_ptr<CHQuery>(new CHQuery(std::move(q)));
+}
+
+void ch_query_reset(CHQuery &query)
+{
+    query.inner.reset();
 }
 
 void ch_query_reset(CHQuery &query, const CH &ch)
@@ -325,6 +384,37 @@ void ch_query_get_distances_to_targets_no_alloc(const CHQuery &query, rust::Slic
     mut_query.get_distances_to_targets(reinterpret_cast<unsigned *>(dists.data()));
 }
 
+void ch_query_pin_sources(CHQuery &query, rust::Slice<const uint32_t> sources)
+{
+    std::vector<unsigned> s;
+    s.reserve(sources.size());
+    for (auto x : sources)
+        s.push_back(x);
+    query.inner.pin_sources(s);
+}
+
+void ch_query_run_to_pinned_sources(CHQuery &query)
+{
+    query.inner.run_to_pinned_sources();
+}
+
+rust::Vec<uint32_t> ch_query_get_distances_to_sources(const CHQuery &query)
+{
+    auto &mut_query = const_cast<RoutingKit::ContractionHierarchyQuery &>(query.inner);
+    auto dists = mut_query.get_distances_to_sources();
+    rust::Vec<uint32_t> out;
+    out.reserve(dists.size());
+    for (auto x : dists)
+        out.push_back(static_cast<uint32_t>(x));
+    return out;
+}
+
+void ch_query_get_distances_to_sources_no_alloc(const CHQuery &query, rust::Slice<uint32_t> dists)
+{
+    auto &mut_query = const_cast<RoutingKit::ContractionHierarchyQuery &>(query.inner);
+    mut_query.get_distances_to_sources(reinterpret_cast<unsigned *>(dists.data()));
+}
+
 uint32_t ch_query_distance(const CHQuery &query)
 {
     auto &mut_query = const_cast<RoutingKit::ContractionHierarchyQuery &>(query.inner);
@@ -351,4 +441,14 @@ rust::Vec<uint32_t> ch_query_arc_path(const CHQuery &query)
     for (auto x : path)
         out.push_back(static_cast<uint32_t>(x));
     return out;
+}
+
+void ch_query_reset_source(CHQuery &query)
+{
+    query.inner.reset_source();
+}
+
+void ch_query_reset_target(CHQuery &query)
+{
+    query.inner.reset_target();
 }
